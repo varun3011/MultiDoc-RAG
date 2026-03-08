@@ -1,155 +1,441 @@
-# Enterprise RAG System (v1)
+# Enterprise RAG
 
-Production-oriented monorepo for a workspace-scoped Retrieval-Augmented Generation (RAG) platform using Supabase Auth, FastAPI, Redis/RQ workers, PostgreSQL + pgvector, and a React client.
+Enterprise RAG is a workspace-scoped document intelligence platform for uploading PDFs, extracting text, indexing chunks with embeddings, and answering questions with grounded citations.
 
-This repository follows `AGENTS.md` as the locked architecture contract. Some modules are scaffolded with TODOs; this README distinguishes current implementation from planned flow.
+The repository is organized as a monorepo with three application surfaces:
+- `server`: FastAPI API and core RAG orchestration
+- `worker`: Redis/RQ background jobs for extraction, indexing, and maintenance
+- `client`: React + Vite frontend with Supabase authentication
 
-## Project Overview
+This README is written for the current codebase. It explains what the system does today, how the services interact, and how the architecture is intended to scale like an enterprise application.
 
-Enterprise RAG enables a user to:
-- authenticate with Supabase
-- create a single workspace (v1 constraint)
-- upload and index PDFs (pipeline scaffolded)
-- run grounded queries over selected documents (query pipeline scaffolded)
-- enforce a strict daily token budget per workspace
+## Table of Contents
 
-## Architecture Diagram
+- [Why This Exists](#why-this-exists)
+- [What The System Does](#what-the-system-does)
+- [System Architecture](#system-architecture)
+- [How It Works End to End](#how-it-works-end-to-end)
+- [Repository Layout](#repository-layout)
+- [API Surface](#api-surface)
+- [Data Model](#data-model)
+- [Limits and Controls](#limits-and-controls)
+- [Local Development](#local-development)
+- [Environment Variables](#environment-variables)
+- [Operational Notes](#operational-notes)
+- [Current Status](#current-status)
+- [Roadmap](#roadmap)
+
+## Why This Exists
+
+Typical RAG demos stop at a single script that embeds documents and sends a prompt to an LLM. That is not enough for a production system.
+
+This project is built around the concerns that matter in enterprise environments:
+- strict workspace isolation
+- authenticated access with bearer tokens
+- asynchronous ingestion so uploads do not block API requests
+- token budget enforcement with reservation and commit semantics
+- query logging and observability
+- repeatable local development with Docker Compose
+- clean separation between API, workers, storage, and UI
+
+## What The System Does
+
+At a high level, the platform supports this flow:
+1. A user signs in with Supabase Auth.
+2. The user creates a workspace.
+3. The client requests a signed upload URL from the API.
+4. A PDF is uploaded to Supabase Storage.
+5. The API confirms the upload and enqueues background jobs.
+6. Workers extract page text, split it into chunks, and generate embeddings.
+7. The document becomes queryable.
+8. The user asks a question against a document.
+9. The API embeds the question, retrieves the most relevant chunks, calls the LLM with grounded context, and returns an answer with citations.
+10. Usage, latency, and errors are recorded for observability.
+
+## System Architecture
+
+### Logical View
 
 ```mermaid
 flowchart LR
-    U[User] --> C[React Client\nVite]
-    C -->|Supabase Auth| SA[Supabase Auth]
-    C -->|Bearer JWT| API[FastAPI Server]
+    User[User] --> Client[React Client]
+    Client --> Auth[Supabase Auth]
+    Client -->|JWT| API[FastAPI API]
 
     API --> DB[(PostgreSQL + pgvector)]
-    API --> R[(Redis)]
-    API --> ST[(Supabase Storage)]
+    API --> Redis[(Redis)]
+    API --> Storage[Supabase Storage]
+    API --> OpenAI[OpenAI API]
 
-    API -->|enqueue jobs| Q[RQ Queues\ningest_extract / ingest_index]
-    Q --> W1[Worker Extract]
-    Q --> W2[Worker Index]
+    API -->|enqueue| ExtractQ[RQ ingest_extract]
+    API -->|enqueue| IndexQ[RQ ingest_index]
 
-    W1 --> DB
-    W2 --> DB
-    W1 --> ST
-    API --> OAI[OpenAI\nEmbeddings + LLM]
-    W2 --> OAI
+    ExtractQ --> ExtractWorker[Extraction Worker]
+    IndexQ --> IndexWorker[Indexing Worker]
+
+    ExtractWorker --> Storage
+    ExtractWorker --> DB
+    ExtractWorker --> Redis
+
+    IndexWorker --> DB
+    IndexWorker --> OpenAI
+
+    API --> Client
 ```
 
-ASCII view:
+### Runtime Topology
 
 ```text
-Client (React) -> FastAPI -> Postgres(pgvector)
-      |              |            ^
-      v              v            |
- Supabase Auth    Redis/RQ -> Worker(s)
-      |                           |
-      +---------------------------+
-                 Supabase Storage / OpenAI
++--------------------+        +---------------------+
+| React Client       |        | Supabase            |
+| Vite app           |        | Auth + Storage      |
++---------+----------+        +----------+----------+
+          |                              ^
+          | JWT / signed upload flow     |
+          v                              |
++---------+-------------------------------------------+
+| FastAPI Server                                        |
+| - auth validation                                     |
+| - workspace-scoped APIs                               |
+| - query orchestration                                 |
+| - token budget checks                                 |
++---------+----------------------+----------------------+
+          |                      |
+          | SQL                  | enqueue jobs
+          v                      v
++---------+----------+   +-------+----------------------+
+| PostgreSQL         |   | Redis / RQ                  |
+| pgvector           |   | rate limiting + job queues  |
++---------+----------+   +-------+----------------------+
+          ^                      |
+          |                      v
+          |              +-------+----------------------+
+          |              | Worker Processes            |
+          |              | - extract PDF text          |
+          |              | - chunk pages               |
+          |              | - create embeddings         |
+          |              | - cleanup reservations      |
+          |              +------------------------------+
+          |
+          +------------ OpenAI embeddings / chat model
 ```
 
-## Tech Stack
+### Enterprise Design Characteristics
 
-- Backend: FastAPI, SQLAlchemy, Pydantic Settings
-- Database: PostgreSQL + pgvector
-- Queue: Redis + RQ
-- Auth/Storage: Supabase Auth + Storage
-- AI: OpenAI (`text-embedding-3-small`, `gpt-4o-mini` per locked architecture)
-- Frontend: React + TypeScript + Vite + Supabase JS
-- Infra/Dev: Docker Compose, Nginx (production client image)
+- API and worker responsibilities are separated.
+- Document ingestion is asynchronous and queue-backed.
+- Every major operation is scoped by `workspace_id`.
+- Token usage is tracked centrally by day.
+- Redis is used both for rate limiting and job execution.
+- Vector retrieval stays in Postgres with `pgvector` instead of introducing another data store.
+- The frontend is a separate deployable artifact.
 
-## High-Level Flow
+## How It Works End to End
 
-### 1) Supabase Auth
-- Client signs in via Supabase (`client/src/lib/supabase.ts`).
-- Client gets `access_token` from session.
-- Backend validates bearer token in `server/app/core/auth.py` using Supabase SDK (with REST fallback).
+### 1. Authentication and Workspace Resolution
 
-### 2) Workspace Creation
-- `POST /workspaces` creates one workspace per user.
-- Enforced uniqueness: if existing workspace owned by user is found, returns `409`.
-- A daily usage row (`workspace_daily_usage`) is initialized at creation.
+The client authenticates with Supabase and sends the bearer token to the API. The server validates the token and derives the current user. Workspace-scoped endpoints then resolve the user's workspace before accessing documents or usage records.
 
-### 3) Token Budget Engine
-- Budget tracked per workspace/day in `workspace_daily_usage`.
-- Implemented operations:
-  - reserve (`reserve_tokens`)
-  - release (`release_tokens`)
-  - commit actual usage (`commit_usage`)
-  - read status (`get_budget_status`)
-- `GET /usage/today` returns `{used,reserved,limit,remaining,resets_at}`.
+Primary files:
+- `client/src/lib/supabase.ts`
+- `server/app/api/deps.py`
+- `server/app/core/auth.py`
+- `server/app/api/workspaces.py`
 
-### 4) Document Ingestion
-- Locked architecture defines `upload-prepare -> upload-complete -> extract -> chunk -> embed -> ready`.
-- Current repo status:
-  - document/query endpoints are scaffolded placeholders
-  - worker jobs `ingest_extract` and `ingest_index` are TODO stubs
-  - DB schema and queue wiring are present
+### 2. Upload and Ingestion Pipeline
 
-### 5) RAG Query Flow
-- Locked architecture requires strict grounded retrieval over workspace-scoped chunks.
-- Current repo status:
-  - `/query` route exists but returns `Not implemented`
-  - retrieval/chunking/embeddings modules are scaffolded
+The upload pipeline is designed so the API never has to receive the PDF bytes directly.
 
-## Environment Variables
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant S as Supabase Storage
+    participant R as Redis/RQ
+    participant W1 as Extract Worker
+    participant W2 as Index Worker
+    participant D as PostgreSQL
 
-Core env is defined in `.env.example`.
+    C->>A: POST /documents/upload-prepare
+    A->>D: create placeholder document row
+    A-->>C: signed upload URL + storage path
+    C->>S: upload PDF directly
+    C->>A: POST /documents/upload-complete
+    A->>R: enqueue extract job
+    R->>W1: ingest_extract
+    W1->>S: download PDF
+    W1->>D: write document_pages
+    W1->>R: enqueue ingest_index
+    R->>W2: ingest_index
+    W2->>D: write chunks
+    W2->>D: write chunk_embeddings
+    W2->>D: mark document ready/indexed
+```
+
+What happens in practice:
+- `upload-prepare` validates file size, content type, workspace limits, and idempotency.
+- The API stores a placeholder document record and returns a signed storage URL.
+- `upload-complete` confirms the object exists in storage and enqueues extraction.
+- `ingest_extract` downloads the PDF and writes extracted page text into `document_pages`.
+- `ingest_index` chunks page text, generates embeddings, stores vectors, and marks the document ready.
+
+Primary files:
+- `server/app/api/documents.py`
+- `server/app/core/storage.py`
+- `worker/jobs/ingest_extract.py`
+- `worker/jobs/ingest_index.py`
+
+### 3. Query Pipeline
+
+The query flow is grounded retrieval, not free-form generation.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant D as PostgreSQL/pgvector
+    participant O as OpenAI
+
+    C->>A: POST /query or POST /query/stream
+    A->>A: validate workspace, document, limits
+    A->>O: embed question
+    A->>D: retrieve top-k chunks by vector similarity
+    A->>A: reserve token budget
+    A->>O: generate grounded answer
+    A->>A: commit actual usage and release remainder
+    A->>D: write query log
+    A-->>C: answer + citations + usage
+```
+
+What the server does:
+- embeds the question with `text-embedding-3-small`
+- retrieves top chunks from `chunk_embeddings` and `chunks`
+- builds a grounded prompt using retrieved content
+- reserves the estimated token budget before the LLM call
+- commits actual usage after the response returns
+- logs citations, latency, and token usage
+
+Primary files:
+- `server/app/api/query.py`
+- `server/app/api/query_stream.py`
+- `server/app/core/retrieval.py`
+- `server/app/core/embeddings.py`
+- `server/app/core/llm.py`
+- `server/app/core/token_budget.py`
+
+### 4. Usage and Observability
+
+The system exposes both real-time usage and an observability summary.
+
+Current observability coverage includes:
+- daily token usage and remaining budget
+- total query count
+- 24-hour query volume and error rate
+- latency statistics
+- document status summary
+- top queried documents
+- recent query failures
+
+Primary files:
+- `server/app/api/usage.py`
+- `server/app/db/models.py`
+- `worker/jobs/maintenance.py`
+
+## Repository Layout
+
+```text
+enterprise-rag/
+├── client/                  # React + Vite frontend
+├── server/                  # FastAPI API, core logic, DB layer
+├── worker/                  # Redis/RQ workers and maintenance jobs
+├── scripts/                 # DB bootstrap and utility scripts
+├── infrastructure/          # Infrastructure placeholders
+├── docker-compose.yml       # Full local stack
+├── docker-compose.prod.yml  # Production-style compose file
+├── AGENTS.md                # Architecture contract and implementation notes
+└── README.md
+```
+
+### Important Directories
+
+- `server/app/api`: REST and streaming endpoints
+- `server/app/core`: auth, retrieval, embeddings, prompts, token budget
+- `server/app/db`: SQLAlchemy models and DB session setup
+- `server/app/schemas`: request and response models
+- `worker/jobs`: extraction, indexing, maintenance jobs
+- `client/src/pages`: authenticated and public application pages
+- `client/src/components`: UI modules for upload, chat, usage, and layout
+
+## API Surface
+
+### Health and Auth
+
+- `GET /health`
+- `GET /auth/me`
+
+### Workspace
+
+- `POST /workspaces`
+- `GET /workspaces/me`
+
+### Documents
+
+- `GET /documents`
+- `GET /documents/{document_id}`
+- `GET /documents/{document_id}/pages/{page_number}`
+- `POST /documents/upload-prepare`
+- `POST /documents/upload-complete`
+- `POST /documents/{document_id}/retry`
+- `POST /documents/{document_id}/reindex`
+- `DELETE /documents/{document_id}`
+
+### Query and Retrieval
+
+- `POST /query`
+- `POST /query/stream`
+- `GET /citations/{chunk_id}`
+- `GET /queries`
+- `GET /queries/{query_id}`
+
+### Chat Sessions
+
+- `POST /chats/sessions`
+- `PATCH /chats/sessions/{session_id}`
+- `GET /chats/sessions`
+- `GET /chats/sessions/{session_id}`
+
+### Usage and Observability
+
+- `GET /usage/today`
+- `GET /usage/observability`
+
+## Data Model
+
+Core tables in the current implementation:
+
+- `workspaces`: tenant root for all user content
+- `documents`: uploaded PDF metadata and pipeline status
+- `document_pages`: extracted page text
+- `chunks`: page-bounded text chunks used for retrieval
+- `chunk_embeddings`: vector embeddings stored in `pgvector`
+- `workspace_daily_usage`: daily token accounting with reserved and used buckets
+- `query_logs`: query history, citations, latency, and token metrics
+- `chat_sessions`: persisted chat metadata and messages
+
+### Status Lifecycle
+
+Document lifecycle in the current codebase:
+
+```text
+pending_upload/uploading -> uploaded -> extracting -> indexing -> ready/indexed
+                                                  \-> failed
+```
+
+## Limits and Controls
+
+Current enforced limits from the application config and rate limiter:
+
+- `1` workspace per user
+- up to `100` documents per workspace
+- maximum file size: `20 MB`
+- supported upload type: `application/pdf`
+- maximum query length: `500` characters
+- retrieval depth: `top_k = 5`
+- LLM max output tokens: `2000`
+- daily token limit: `100000` tokens per workspace
+- upload prepare rate limit: `10` requests per minute per workspace
+- upload complete rate limit: `20` requests per minute per workspace
+- query rate limit: `100` requests per minute per workspace
+
+### Token Budget Model
+
+The token budget is managed with reservation semantics so concurrent requests do not overspend the daily allowance.
+
+Flow:
+1. Estimate query embedding + prompt + max output cost.
+2. Reserve the estimated tokens.
+3. Execute the LLM call.
+4. Commit actual tokens used.
+5. Release any unused reservation.
+6. Periodically clean stale reservations.
+
+This logic is implemented in `server/app/core/token_budget.py` and `worker/jobs/maintenance.py`.
+
+## Local Development
+
+### Prerequisites
+
+- Docker and Docker Compose
+- Node.js 20+ if running the client outside Docker
+- Python 3.11 if running the API or worker outside Docker
+- A Supabase project
+- An OpenAI API key for embeddings and answer generation
+
+### Quick Start With Docker Compose
+
+1. Create your environment file.
 
 ```bash
-# Supabase
+cp .env.example .env
+```
+
+2. Fill in at least these values:
+
+```bash
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 SUPABASE_ANON_KEY=
 SUPABASE_JWT_SECRET=
-SUPABASE_KEY=  # compatibility alias
-
-# AI
 OPENAI_API_KEY=
-
-# Data/queue
-DATABASE_URL=
-REDIS_URL=
-
-# App
-ENVIRONMENT=development
-API_HOST=0.0.0.0
-API_PORT=8000
-DAILY_TOKEN_LIMIT=100000
-
-# Client
-VITE_API_URL=http://localhost:8000
-VITE_SUPABASE_URL=
-VITE_SUPABASE_ANON_KEY=
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/enterprise_rag
+REDIS_URL=redis://localhost:6379/0
 ```
 
-What matters most right now:
-- `SUPABASE_URL` + service role key for backend token validation
-- `VITE_SUPABASE_URL` + anon key for client auth
-- `DATABASE_URL` for server + workers
-- `REDIS_URL` for workers
-
-## Run Locally (Backend + Frontend)
-
-### Option A: Docker Compose (recommended)
+3. Start the stack.
 
 ```bash
-cp .env.example .env
 docker-compose up --build
 ```
 
-Services:
-- API: `http://localhost:8000`
-- Client: `http://localhost:5173`
-- RQ Dashboard: `http://localhost:9181`
+4. Open the services:
+- client: `http://localhost:5173`
+- api: `http://localhost:8000`
+- rq dashboard: `http://localhost:9181`
 
-### Option B: Run modules directly
+### Useful Commands
+
+```bash
+# start everything
+docker-compose up
+
+# rebuild and start
+docker-compose up --build
+
+# stop services
+docker-compose down
+
+# stop and remove volumes
+docker-compose down -v
+
+# run DB migrations from the server container
+docker-compose exec server alembic upgrade head
+
+# view server logs
+docker-compose logs -f server
+
+# view worker logs
+docker-compose logs -f worker-extract
+docker-compose logs -f worker-index
+```
+
+### Run Services Individually
 
 Server:
 
 ```bash
 cd server
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
@@ -162,70 +448,120 @@ npm install
 npm run dev -- --host 0.0.0.0
 ```
 
-Worker (example queue):
+Worker:
 
 ```bash
 cd worker
-python -m venv .venv && source .venv/bin/activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-QUEUE_NAME=ingest_extract REDIS_URL=redis://localhost:6379/0 python worker.py
+QUEUE_NAME=ingest_extract python worker.py
 ```
 
-## Run With Supabase
+## Environment Variables
 
-1. Create Supabase project.
-2. Fill `.env` with Supabase URL, service role key, anon key.
-3. Apply schema:
+Root `.env.example` is the primary template for local development.
+
+### Required Core Variables
 
 ```bash
-psql "$DATABASE_URL" -f scripts/schema.supabase.sql
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_JWT_SECRET=your-jwt-secret
+SUPABASE_STORAGE_BUCKET=documents
+
+OPENAI_API_KEY=sk-...
+
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/enterprise_rag
+REDIS_URL=redis://localhost:6379/0
 ```
 
-4. Start stack (`docker-compose up --build`).
-5. Open client and sign in.
-
-Basic API check with JWT:
+### Useful Application Variables
 
 ```bash
-curl -H "Authorization: Bearer <SUPABASE_ACCESS_TOKEN>" \
-  http://localhost:8000/auth/me
+ENVIRONMENT=development
+API_HOST=0.0.0.0
+API_PORT=8000
+DAILY_TOKEN_LIMIT=100000
+RESERVATION_TTL_SECONDS=600
+LOG_EACH_QUERY=false
+EMBEDDING_MODEL=text-embedding-3-small
+VITE_API_URL=http://localhost:8000
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-Create workspace:
+## Operational Notes
 
-```bash
-curl -X POST http://localhost:8000/workspaces \
-  -H "Authorization: Bearer <SUPABASE_ACCESS_TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"My Workspace"}'
-```
+### Workspace Isolation
 
-Get usage today:
+The system is designed around `workspace_id` as the isolation boundary. Document access, usage tracking, retrieval, and query logs are all scoped to a workspace.
 
-```bash
-curl -H "Authorization: Bearer <SUPABASE_ACCESS_TOKEN>" \
-  http://localhost:8000/usage/today
-```
+### Storage Strategy
 
-## Folder Structure Summary
+PDF binaries live in Supabase Storage. Extracted text, chunks, metadata, and embeddings live in Postgres.
 
-```text
-enterprise-rag/
-├── server/           # FastAPI API + token budget + DB models
-├── client/           # React/Vite frontend with Supabase auth
-├── worker/           # RQ workers (extract/index + maintenance)
-├── scripts/          # DB schema/bootstrap scripts
-├── infrastructure/   # Terraform/K8s placeholders
-├── docker-compose.yml
-└── AGENTS.md         # Locked architecture contract
-```
+### Vector Search Strategy
 
-## Development Order Roadmap
+Embeddings are stored in `chunk_embeddings.embedding` using `pgvector`. Retrieval uses cosine distance and returns the most relevant chunk candidates for a single document.
 
-1. Complete document API contracts (`upload-prepare`, `upload-complete`, list/status).
-2. Implement extraction worker (`worker/jobs/ingest_extract.py`) and page persistence.
-3. Implement chunking + embeddings pipeline (`server/app/core/chunking.py`, `embeddings.py`, `worker/jobs/ingest_index.py`).
-4. Implement retrieval + grounded query endpoint (`server/app/api/query.py`, `core/retrieval.py`).
-5. Add stale reservation scheduled maintenance integration and observability.
-6. Expand client from test harness to full app pages (`Documents`, `Query`, `Usage`, `Dashboard`).
-7. Harden with integration tests (auth, workspace isolation, ingestion, retrieval, budget edge cases).
+### Failure Recovery
+
+- failed documents can be retried with `POST /documents/{document_id}/retry`
+- already processed documents can be reindexed with `POST /documents/{document_id}/reindex`
+- stale token reservations can be cleared by the maintenance job
+- document deletion removes metadata first, then attempts storage cleanup
+
+### Frontend Application Areas
+
+Current routed pages in the client:
+- `/login`
+- `/signup`
+- `/workspace`
+- `/app/upload`
+- `/app/chat`
+- `/app/observability`
+- `/app/workspace`
+
+## Current Status
+
+The repository is beyond a scaffold. These capabilities are already present in code:
+
+- JWT-backed auth integration with Supabase
+- one-workspace-per-user model
+- signed upload preparation and upload completion
+- background extraction and indexing jobs
+- page text persistence
+- chunk persistence and vector embedding storage
+- grounded query endpoint
+- streaming query endpoint using SSE
+- citation source retrieval
+- query history APIs
+- chat session APIs
+- usage and observability endpoints
+- Docker-based local runtime
+
+Known gaps or areas still being hardened:
+- not every table in the architecture contract is represented yet in SQLAlchemy models
+- `server/app/core/chunking.py` remains a placeholder while worker-side chunking is active
+- production deployment still needs full operational hardening, secrets handling, and CI maturity
+- test coverage is still light for end-to-end ingestion and retrieval
+
+## Roadmap
+
+Near-term improvements that fit the current architecture:
+
+1. Move chunking into a shared core module so API and workers use one implementation.
+2. Expand integration tests around upload, extraction, indexing, and query behavior.
+3. Add stronger metrics, worker lifecycle hooks, and scheduled maintenance execution.
+4. Harden migration coverage for all current tables and status transitions.
+5. Expand query scope from single-document search to selected multi-document search where needed.
+6. Improve production deployment docs and CI/CD validation.
+
+## Related Docs
+
+- `AGENTS.md`: architecture contract and implementation guidance
+- `server/README.md`: server-specific notes
+- `worker/README.md`: worker-specific notes
+- `client/README.md`: client-specific notes

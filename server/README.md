@@ -1,145 +1,207 @@
-# Server Module (`server/`)
+# Server
 
-## Purpose
+`server/` is the FastAPI backend for Enterprise RAG. It owns authentication, workspace resolution, document APIs, grounded query orchestration, token budget enforcement, and observability endpoints.
 
-`server/` is the FastAPI backend for Enterprise RAG. It is responsible for:
-- Supabase JWT validation
-- workspace ownership and isolation checks
-- token budget accounting and reservation safety
-- API surface for auth/workspace/documents/query/usage
-- persistence through SQLAlchemy models over PostgreSQL
+## Responsibilities
 
-Current implementation includes auth/workspace/usage endpoints and token-budget core logic; documents/query/retrieval/chunking/embeddings are scaffolded for next implementation stages.
+- validate Supabase JWTs
+- resolve the caller's workspace
+- manage document upload preparation and upload completion
+- enqueue extraction and indexing jobs
+- execute grounded RAG queries and SSE streaming queries
+- track daily token usage with reserve/commit/release semantics
+- expose query history, citations, chat sessions, and observability data
 
-## FastAPI Structure Breakdown
+## Module Layout
 
 ```text
 server/
 ├── app/
-│   ├── main.py               # FastAPI app, CORS, router mounting
-│   ├── config.py             # env settings + UTC helpers
-│   ├── api/
-│   │   ├── auth.py           # GET /auth/me
-│   │   ├── workspaces.py     # POST /workspaces, GET /workspaces/me
-│   │   ├── usage.py          # GET /usage/today
-│   │   ├── documents.py      # scaffold
-│   │   └── query.py          # scaffold
-│   ├── core/
-│   │   ├── auth.py           # JWT validation via Supabase
-│   │   ├── token_budget.py   # reserve/release/commit/status
-│   │   ├── chunking.py       # scaffold
-│   │   ├── embeddings.py     # scaffold
-│   │   └── retrieval.py      # scaffold
-│   ├── db/
-│   │   ├── session.py        # engine/session/base
-│   │   └── models.py         # ORM models
-│   ├── schemas/              # request/response models
-│   └── storage/client.py     # storage scaffold
-├── migrations/
-└── tests/
+│   ├── main.py               # FastAPI app and router registration
+│   ├── config.py             # environment settings and UTC helpers
+│   ├── api/                  # route handlers
+│   ├── core/                 # auth, retrieval, llm, embeddings, token budget
+│   ├── db/                   # SQLAlchemy session, models, repositories
+│   ├── schemas/              # request and response schemas
+│   ├── storage/              # Supabase storage integration
+│   └── utils/                # rate limiting and logging helpers
+├── migrations/               # Alembic environment and revisions
+├── tests/
+├── requirements.txt
+└── pyproject.toml
 ```
 
-## Core Modules
+## API Surface
 
-### `auth`
-- `server/app/core/auth.py`
-- Validates bearer JWT against Supabase.
-- Primary path: `supabase.auth.get_user(jwt)`.
-- Fallback path: direct REST call to `/auth/v1/user` when SDK/httpx compatibility issues occur.
+Routes registered in `app/main.py`:
 
-### `token_budget`
-- `server/app/core/token_budget.py`
-- Implements row-safe daily accounting in `workspace_daily_usage` with lock semantics.
-- Handles:
-  - `reserve_tokens`
-  - `release_tokens`
-  - `commit_usage`
-  - `get_budget_status`
-- Uses upsert-style row initialization (`get_or_create` behavior) for both PostgreSQL and SQLite.
+- `GET /health`
+- `GET /auth/me`
+- `POST /workspaces`
+- `GET /workspaces/me`
+- `GET /documents`
+- `GET /documents/{document_id}`
+- `GET /documents/{document_id}/pages/{page_number}`
+- `POST /documents/upload-prepare`
+- `POST /documents/upload-complete`
+- `POST /documents/{document_id}/retry`
+- `POST /documents/{document_id}/reindex`
+- `DELETE /documents/{document_id}`
+- `POST /query`
+- `POST /query/stream`
+- `GET /citations/{chunk_id}`
+- `GET /queries`
+- `GET /queries/{query_id}`
+- `POST /chats/sessions`
+- `PATCH /chats/sessions/{session_id}`
+- `GET /chats/sessions`
+- `GET /chats/sessions/{session_id}`
+- `GET /usage/today`
+- `GET /usage/observability`
 
-### `database`
-- `server/app/db/session.py`: SQLAlchemy engine/session lifecycle.
-- `server/app/db/models.py`: ORM for `workspaces`, `documents`, `workspace_daily_usage`.
-- Full target schema exists in `scripts/schema.local.sql` and `scripts/schema.supabase.sql`.
+## Request Flow
 
-### `api routers`
-Mounted in `server/app/main.py`:
-- `/auth`
-- `/workspaces`
-- `/documents` (scaffold)
-- `/query` (scaffold)
-- `/usage`
+### Auth and Workspace Resolution
 
-## How JWT Validation Works
-
-Request path:
 1. Client sends `Authorization: Bearer <token>`.
-2. `get_current_user` (`app/api/deps.py`) enforces bearer format.
-3. `validate_jwt_and_get_user` (`app/core/auth.py`) verifies token with Supabase.
-4. On success, request receives `AuthenticatedUser` with `user_id/email/role`.
+2. `app/api/deps.py` validates bearer presence.
+3. `app/core/auth.py` validates the JWT with Supabase.
+4. `get_workspace_id()` resolves the current user's workspace.
+5. Workspace-scoped routes operate only within that resolved `workspace_id`.
 
-Minimal check:
+Primary files:
+- `app/api/deps.py`
+- `app/core/auth.py`
+- `app/api/workspaces.py`
 
-```bash
-curl -H "Authorization: Bearer <access_token>" \
-  http://localhost:8000/auth/me
+### Document Upload Lifecycle
+
+```text
+upload-prepare -> upload-complete -> enqueue extract -> extract pages
+               -> enqueue index -> create chunks/embeddings -> ready
 ```
 
-## How Workspace Isolation Works
+What the API does:
+- validates file size and content type
+- enforces document count limits
+- creates placeholder document records
+- issues signed upload URLs through Supabase Storage
+- verifies uploaded object existence
+- enqueues RQ jobs for extraction and indexing
+- supports retry, reindex, and delete flows
 
-Isolation model in current implementation:
-- `GET /workspaces/me` resolves workspace by `owner_id == current_user.id`.
-- `get_workspace_id` dependency returns only the caller-owned workspace id.
-- `GET /usage/today` is scoped via that dependency.
+Primary files:
+- `app/api/documents.py`
+- `app/core/storage.py`
 
-Architecture contract requires every data query to include `workspace_id` filters. The current workspace and usage flows follow this; document/query endpoints are pending implementation.
+### Query Lifecycle
 
-## How Token Reservation Model Works
-
-Core behavior (`app/core/token_budget.py`):
-
-```python
-reserve -> tokens_reserved += amount (if within DAILY_TOKEN_LIMIT)
-release -> tokens_reserved -= amount
-commit  -> tokens_reserved -= amount; tokens_used += amount
-status  -> remaining = limit - (used + reserved)
+```text
+question -> embed question -> retrieve top-k chunks -> reserve tokens
+         -> call LLM -> commit actual usage -> return answer + citations
 ```
 
-Concurrency safety:
-- uses transactional row locks (`SELECT ... FOR UPDATE` where supported)
-- tested for reservation race behavior in `server/tests/test_token_budget.py`
+What happens in code:
+- question embedding comes from `app/core/embeddings.py`
+- vector retrieval comes from `app/core/retrieval.py`
+- grounded prompting and LLM calls come from `app/core/llm.py` and `app/core/prompts.py`
+- token reservation and usage accounting come from `app/core/token_budget.py`
+- query metadata is logged into `query_logs` when enabled
 
-Example usage endpoint:
+Primary files:
+- `app/api/query.py`
+- `app/api/query_stream.py`
+- `app/core/retrieval.py`
+- `app/core/llm.py`
+- `app/core/token_budget.py`
+
+## Core Subsystems
+
+### Token Budget
+
+The server enforces a daily workspace token limit using `workspace_daily_usage`.
+
+Operations:
+- `reserve_tokens()`
+- `release_tokens()`
+- `commit_usage()`
+- `get_budget_status()`
+
+Behavior:
+- reservations are acquired before LLM work
+- actual usage is committed after the model returns
+- unused reserved tokens are released
+- stale reservations are cleaned separately by the worker maintenance job
+
+Primary file:
+- `app/core/token_budget.py`
+
+### Retrieval
+
+The retrieval layer reads vectors from `chunk_embeddings` and chunk/page text from Postgres.
+
+Current behavior:
+- query embedding is turned into a `pgvector` literal
+- cosine distance query returns top-k chunks for one document
+- each result includes chunk text, page text, score, and token count
+
+Primary file:
+- `app/core/retrieval.py`
+
+### Rate Limiting
+
+Redis-backed per-workspace rate limiting is enforced in the API.
+
+Current limits:
+- queries: `100` requests / `60s`
+- upload prepare: `10` requests / `60s`
+- upload complete and retry/reindex mutations: `20` requests / `60s`
+
+Primary files:
+- `app/core/rate_limit.py`
+- `app/utils/rate_limit.py`
+
+## Data Model
+
+The server depends on these core tables:
+
+- `workspaces`
+- `documents`
+- `document_pages`
+- `chunks`
+- `chunk_embeddings`
+- `workspace_daily_usage`
+- `query_logs`
+- `chat_sessions`
+
+Current SQLAlchemy models are defined in `app/db/models.py`. Full schema scripts live under `../scripts/`.
+
+## Environment
+
+Minimal server environment:
 
 ```bash
-curl -H "Authorization: Bearer <access_token>" \
-  http://localhost:8000/usage/today
-```
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_KEY=your-service-role-key
+SUPABASE_STORAGE_BUCKET=documents
 
-## Important Environment Variables
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/enterprise_rag
+REDIS_URL=redis://localhost:6379/0
+OPENAI_API_KEY=sk-...
 
-From `server/.env.example` and `app/config.py`:
-
-```bash
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-SUPABASE_KEY=                 # optional alias
-DATABASE_URL=
-REDIS_URL=
 ENVIRONMENT=development
 API_HOST=0.0.0.0
 API_PORT=8000
 DAILY_TOKEN_LIMIT=100000
 RESERVATION_TTL_SECONDS=600
+LLM_MODEL=gpt-4o-mini
+EMBEDDING_MODEL=text-embedding-3-small
 ```
 
-Notes:
-- `SUPABASE_SERVICE_ROLE_KEY` is preferred; `SUPABASE_KEY` is accepted as fallback.
-- `RESERVATION_TTL_SECONDS` is used by maintenance cleanup logic (currently in worker).
+## Run
 
-## How To Run Server
-
-### Local Python
+### Local
 
 ```bash
 cd server
@@ -161,22 +223,20 @@ Health check:
 curl http://localhost:8000/health
 ```
 
-## Future Expansion Notes
+## Development Commands
 
-Planned next backend milestones (aligned with locked architecture):
-- implement document upload lifecycle and metadata validation
-- add extraction/chunking/embedding orchestration endpoints
-- implement pgvector retrieval and grounded `/query`
-- add workspace-scoped rate limiting and structured logging
-- complete repository layer under `app/db/repositories/`
-- expand Alembic migrations and integration tests beyond health/token-budget
+```bash
+cd server
+pytest
+ruff check .
+black --check .
+mypy app
+```
 
-## Rate Limiting
+## Notes for Contributors
 
-Rate limiting is implemented with Redis counters:
-
-- `POST /query`: enforced in `server/app/api/query.py` (`_enforce_query_rate_limit`, 100 requests / 60s / workspace).
-- `POST /documents/upload-prepare`: enforced in `server/app/api/documents.py` via `app.utils.rate_limit.enforce_workspace_rate_limit` (10 requests / 60s / workspace).
-- `POST /documents/upload-complete`: enforced in `server/app/api/documents.py` via the same limiter (20 requests / 60s / workspace).
-- `POST /documents/{document_id}/retry`: enforced in `server/app/api/documents.py` using the document mutation limiter (20 requests / 60s / workspace).
-- `POST /documents/{document_id}/reindex`: enforced in `server/app/api/documents.py` using the document mutation limiter (20 requests / 60s / workspace).
+- keep every data access path workspace-scoped
+- do not bypass the token budget layer for query-time model usage
+- document status transitions matter because workers and UI depend on them
+- `app/core/chunking.py` is still a placeholder; worker-side chunking is currently the active path
+- if you add endpoints, register them in `app/main.py` and add corresponding schemas
