@@ -1,98 +1,159 @@
-# Worker Module (`worker/`)
+# Worker
 
-## Purpose of Worker Service
+`worker/` runs asynchronous background jobs for Enterprise RAG. It is responsible for the long-running work that should not happen in the request path: PDF extraction, chunk indexing, embedding generation, and maintenance cleanup.
 
-`worker/` runs asynchronous background jobs for ingestion and operational maintenance. It is designed to decouple long-running PDF processing/indexing tasks from synchronous API requests.
+## Responsibilities
 
-Current state:
-- queue runner is implemented (`worker.py`)
-- ingestion jobs are scaffolded stubs
-- stale token reservation cleanup logic is implemented (`jobs/maintenance.py`)
+- consume RQ jobs from Redis
+- extract page text from uploaded PDFs
+- persist `document_pages`
+- split page text into chunks
+- generate embeddings for chunks
+- mark documents as `ready` or `failed`
+- clean stale token reservations
 
-## RQ Queue Architecture
+## Module Layout
 
-`worker/worker.py`:
-- reads `QUEUE_NAME` (or CLI arg) and `REDIS_URL`
-- creates Redis connection
-- creates RQ `Queue`
-- starts `Worker([queue])`
+```text
+worker/
+├── jobs/
+│   ├── ingest_extract.py     # PDF download and page extraction
+│   ├── ingest_index.py       # chunking and embedding generation
+│   └── maintenance.py        # stale reservation cleanup
+├── shared/                   # shared package placeholder
+├── worker.py                 # RQ worker entrypoint
+├── requirements.txt
+└── tests/
+```
 
-Queue names used by compose:
+## Queue Model
+
+The worker process reads one or more queue names from `QUEUE_NAME` or the first CLI argument.
+
+Current queue names:
 - `ingest_extract`
 - `ingest_index`
 
-Example startup:
+Entrypoint behavior in `worker.py`:
+- connect to Redis
+- create `Queue` objects for the configured names
+- start an RQ `Worker`
+
+Example:
 
 ```bash
 cd worker
 QUEUE_NAME=ingest_extract REDIS_URL=redis://localhost:6379/0 python worker.py
 ```
 
-## `ingest_extract` vs `ingest_index`
+## Job Flows
 
 ### `jobs/ingest_extract.py`
-Intended responsibility (locked architecture):
-- fetch uploaded PDF metadata/blob
-- extract page text
-- persist `document_pages`
-- update document state (`uploaded` -> `indexing` or `failed`)
 
-Current status:
-- placeholder `run(document_id: str)` function
+Purpose:
+- download the uploaded PDF from Supabase Storage
+- read it with `pypdf`
+- extract per-page text
+- replace any previous `document_pages` rows for idempotency
+- update the document status to `indexing`
+- enqueue `ingest_index`
+
+Current behavior:
+- extraction is page-based
+- temporary PDF file is written under `/tmp`
+- failures mark the document as `failed`
+- if the schema does not include `extracting`, the code falls back to `indexing`
 
 ### `jobs/ingest_index.py`
-Intended responsibility (locked architecture):
-- chunk extracted page text
-- generate embeddings
-- persist `chunks` and `chunk_embeddings`
-- mark document `ready` when complete
 
-Current status:
-- placeholder `run(document_id: str)` function
+Purpose:
+- load extracted page text
+- split each page into chunks
+- insert chunk rows
+- reserve token budget per chunk embedding
+- call OpenAI embeddings
+- insert vectors into `chunk_embeddings`
+- commit token usage
+- mark the document as `ready` or `indexed`
 
-## Maintenance Jobs (Token Cleanup)
+Current chunking behavior:
+- page-bounded chunks
+- target chunk size: `500` tokens
+- overlap: `100` tokens
+- `tiktoken` when available, character approximation fallback otherwise
 
-`jobs/maintenance.py` implements `cleanup_stale_reservations()`:
-- connects to DB via `DATABASE_URL`
-- reads `RESERVATION_TTL_SECONDS` (default `600`)
-- sets `tokens_reserved=0` for stale rows in `workspace_daily_usage`
-- supports PostgreSQL and SQLite SQL variants
+Failure behavior:
+- budget exhaustion marks the document `failed`
+- any outstanding reservations are released on failure
+- chunk rows are rebuilt idempotently for the document during reindex
 
-Example invocation:
+### `jobs/maintenance.py`
+
+Purpose:
+- clear stale rows in `workspace_daily_usage` where tokens remain reserved beyond TTL
+
+Current behavior:
+- supports PostgreSQL and SQLite variants
+- reads `DATABASE_URL` and `RESERVATION_TTL_SECONDS`
+- returns affected row count
+
+Example:
 
 ```bash
 cd worker
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/enterprise_rag \
-RESERVATION_TTL_SECONDS=600 \
 python -c "from jobs.maintenance import cleanup_stale_reservations; print(cleanup_stale_reservations())"
 ```
 
-## How Redis Integrates
+## Runtime Flow
 
-Redis is both:
-- transport for queued jobs
-- worker coordination backend for RQ
+```text
+API upload-complete
+  -> enqueue ingest_extract
+  -> extract pages from PDF
+  -> enqueue ingest_index
+  -> chunk pages
+  -> embed chunks
+  -> mark document ready
+```
 
-In `docker-compose.yml`:
-- Redis service runs at `redis://redis:6379/0` inside containers
-- workers and server share that connection target for enqueue/consume workflows
+## Environment
 
-## How To Start Worker
+Minimal worker environment:
 
-### Local Python
+```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/enterprise_rag
+REDIS_URL=redis://localhost:6379/0
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_KEY=your-service-role-key
+OPENAI_API_KEY=sk-...
+QUEUE_NAME=ingest_extract
+RESERVATION_TTL_SECONDS=600
+EMBEDDING_MODEL=text-embedding-3-small
+```
+
+## Run
+
+### Local
 
 ```bash
 cd worker
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-QUEUE_NAME=ingest_extract REDIS_URL=redis://localhost:6379/0 python worker.py
+QUEUE_NAME=ingest_extract python worker.py
 ```
 
-Run index worker:
+Run the index queue:
 
 ```bash
-QUEUE_NAME=ingest_index REDIS_URL=redis://localhost:6379/0 python worker.py
+QUEUE_NAME=ingest_index python worker.py
+```
+
+Run both queues in one process:
+
+```bash
+QUEUE_NAME=ingest_extract,ingest_index python worker.py
 ```
 
 ### Docker Compose
@@ -101,38 +162,10 @@ QUEUE_NAME=ingest_index REDIS_URL=redis://localhost:6379/0 python worker.py
 docker-compose up worker-extract worker-index
 ```
 
-## Scaling Workers
+## Development Notes
 
-Current compose defaults:
-- `worker-extract` replicas: `5`
-- `worker-index` replicas: `3`
-
-Scaling options:
-- increase replicas in compose/orchestrator
-- split queue responsibilities by workload
-- tune queue depth monitoring via RQ Dashboard (`:9181`)
-
-Recommended operational pattern:
-- keep extract workers higher than index if extraction is I/O-bound
-- keep index workers sized for embedding throughput and API rate limits
-
-## Failure Handling
-
-Expected model per locked architecture:
-- job exceptions move document to `failed`
-- retry transient failures with bounded retries/backoff
-- keep idempotency by document/chunk hashes
-- log structured context for postmortems
-
-Current implemented behavior:
-- RQ worker loop is active
-- ingestion retry/error transitions are not yet implemented in job stubs
-- maintenance cleanup function returns affected row count for observability
-
-## Shared Code Integration
-
-`worker/shared/` is intended to mirror/reuse server logic (models/config/core) to avoid divergence.
-
-Current repo state:
-- shared package is present as placeholder
-- compose mounts `./server/app` into `/app/shared` for practical code sharing during development
+- worker jobs are stateful with respect to document status transitions; keep them explicit
+- release reserved tokens on every failure path
+- chunking currently lives in `jobs/ingest_index.py`, not in shared core yet
+- `worker/shared/` exists for future code consolidation, but the active shared path in local compose is the mounted server app code
+- if you add new jobs, ensure the API enqueues them by import path and that the queue name is wired in Compose
