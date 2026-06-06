@@ -71,6 +71,47 @@ def test_release_reduces_reserved(db_session: Session, workspace_id: uuid.UUID, 
     assert status["used"] == 0
 
 
+def test_budget_operations_use_short_transaction_when_caller_session_is_active(
+    sqlite_session_factory: sessionmaker,
+    limit_guard,
+) -> None:
+    settings.DAILY_TOKEN_LIMIT = 1_000
+    today = date(2026, 2, 15)
+
+    setup_session = sqlite_session_factory()
+    workspace = Workspace(name="Active Transaction", owner_id=uuid.uuid4())
+    setup_session.add(workspace)
+    setup_session.commit()
+    setup_session.close()
+
+    caller_session = sqlite_session_factory()
+    observer_session = sqlite_session_factory()
+    try:
+        # Trigger SQLAlchemy autobegin on the caller session before reserving tokens.
+        caller_session.get(Workspace, workspace.id)
+
+        reserve_result = reserve_tokens(caller_session, workspace.id, 200, today)
+        status_after_reserve = get_budget_status(observer_session, workspace.id, today)
+
+        commit_result = commit_usage(caller_session, workspace.id, 125, today)
+        status_after_commit = get_budget_status(observer_session, workspace.id, today)
+
+        release_result = release_tokens(caller_session, workspace.id, 75, today)
+        status_after_release = get_budget_status(observer_session, workspace.id, today)
+
+        assert reserve_result["reserved"] == 200
+        assert status_after_reserve["reserved"] == 200
+        assert commit_result["used_now"] == 125
+        assert status_after_commit["used"] == 125
+        assert status_after_commit["reserved"] == 75
+        assert release_result["reserved_now"] == 0
+        assert status_after_release["used"] == 125
+        assert status_after_release["reserved"] == 0
+    finally:
+        caller_session.close()
+        observer_session.close()
+
+
 def test_resets_at_is_next_midnight_utc(db_session: Session, workspace_id: uuid.UUID, limit_guard) -> None:
     settings.DAILY_TOKEN_LIMIT = 1_000
     usage_day = date(2026, 2, 15)
