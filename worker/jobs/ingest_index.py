@@ -10,6 +10,10 @@ from sqlalchemy import text
 
 from app.config import settings, utc_today
 from app.core.errors import BudgetExceededError
+from app.core.ingestion_policy import (
+    IngestionFailureCategory,
+    ingestion_failure_message,
+)
 from app.core.token_budget import commit_usage, release_tokens, reserve_tokens
 from app.db.session import SessionLocal
 
@@ -24,7 +28,13 @@ CHUNK_SIZE_TOKENS = 500
 OVERLAP_TOKENS = 100
 
 
-def _set_document_failed(workspace_id: uuid.UUID, document_id: uuid.UUID, error_message: str) -> None:
+def _failure_message(category: IngestionFailureCategory, detail: str) -> str:
+    return ingestion_failure_message(category, detail)[:2000]
+
+
+def _set_document_failed(
+    workspace_id: uuid.UUID, document_id: uuid.UUID, error_message: str
+) -> None:
     with SessionLocal() as db:
         db.execute(
             text(
@@ -42,6 +52,31 @@ def _set_document_failed(workspace_id: uuid.UUID, document_id: uuid.UUID, error_
                 "document_id": document_id,
                 "error_message": error_message[:2000],
             },
+        )
+        db.commit()
+
+
+def _cleanup_index_artifacts(workspace_id: uuid.UUID, document_id: uuid.UUID) -> None:
+    with SessionLocal() as db:
+        db.execute(
+            text(
+                """
+                DELETE FROM chunk_embeddings
+                WHERE workspace_id = :workspace_id
+                  AND document_id = :document_id
+                """
+            ),
+            {"workspace_id": workspace_id, "document_id": document_id},
+        )
+        db.execute(
+            text(
+                """
+                DELETE FROM chunks
+                WHERE workspace_id = :workspace_id
+                  AND document_id = :document_id
+                """
+            ),
+            {"workspace_id": workspace_id, "document_id": document_id},
         )
         db.commit()
 
@@ -81,7 +116,11 @@ def _get_encoding():
         return None
 
 
-def chunk_text(text_value: str, chunk_size_tokens: int = CHUNK_SIZE_TOKENS, overlap_tokens: int = OVERLAP_TOKENS) -> list[str]:
+def chunk_text(
+    text_value: str,
+    chunk_size_tokens: int = CHUNK_SIZE_TOKENS,
+    overlap_tokens: int = OVERLAP_TOKENS,
+) -> list[str]:
     normalized = (text_value or "").strip()
     if not normalized:
         return []
@@ -126,7 +165,15 @@ def _embedding_to_vector_literal(embedding: list[float]) -> str:
     return "[" + ",".join(f"{value:.10f}" for value in embedding) + "]"
 
 
-def ingest_index(workspace_id: str, document_id: str) -> dict:
+def _batched(rows: list[dict[str, object]], batch_size: int):
+    size = max(1, batch_size)
+    for start in range(0, len(rows), size):
+        yield rows[start : start + size]
+
+
+def ingest_index(
+    workspace_id: str, document_id: str, ingestion_run_id: str | None = None
+) -> dict:
     workspace_uuid = uuid.UUID(workspace_id)
     document_uuid = uuid.UUID(document_id)
     usage_date = utc_today()
@@ -135,18 +182,22 @@ def ingest_index(workspace_id: str, document_id: str) -> dict:
     try:
         with SessionLocal() as db:
             allowed_statuses = _allowed_document_statuses(db)
-            document_row = db.execute(
-                text(
-                    """
+            document_row = (
+                db.execute(
+                    text(
+                        """
                     SELECT id, status
                     FROM documents
                     WHERE id = :document_id
                       AND workspace_id = :workspace_id
                     LIMIT 1
                     """
-                ),
-                {"workspace_id": workspace_uuid, "document_id": document_uuid},
-            ).mappings().first()
+                    ),
+                    {"workspace_id": workspace_uuid, "document_id": document_uuid},
+                )
+                .mappings()
+                .first()
+            )
 
             if document_row is None:
                 raise ValueError("Document not found for workspace")
@@ -154,7 +205,9 @@ def ingest_index(workspace_id: str, document_id: str) -> dict:
             if "extracting" in allowed_statuses:
                 accepted_current_statuses.add("extracting")
             if document_row["status"] not in accepted_current_statuses:
-                raise ValueError(f"Document status must be indexing or uploaded (got: {document_row['status']})")
+                raise ValueError(
+                    f"Document status must be indexing or uploaded (got: {document_row['status']})"
+                )
 
             db.execute(
                 text(
@@ -170,18 +223,22 @@ def ingest_index(workspace_id: str, document_id: str) -> dict:
                 {"workspace_id": workspace_uuid, "document_id": document_uuid},
             )
 
-            pages = db.execute(
-                text(
-                    """
+            pages = (
+                db.execute(
+                    text(
+                        """
                     SELECT page_number, content
                     FROM document_pages
                     WHERE workspace_id = :workspace_id
                       AND document_id = :document_id
                     ORDER BY page_number ASC
                     """
-                ),
-                {"workspace_id": workspace_uuid, "document_id": document_uuid},
-            ).mappings().all()
+                    ),
+                    {"workspace_id": workspace_uuid, "document_id": document_uuid},
+                )
+                .mappings()
+                .all()
+            )
 
             db.execute(
                 text(
@@ -220,40 +277,61 @@ def ingest_index(workspace_id: str, document_id: str) -> dict:
                         "page_end": page_number,
                         "chunk_index": chunk_index,
                         "content": piece,
-                        "content_hash": hashlib.sha256(piece.encode("utf-8")).hexdigest(),
+                        "content_hash": hashlib.sha256(
+                            piece.encode("utf-8")
+                        ).hexdigest(),
                         "token_count": _estimate_embedding_tokens(piece),
                     }
                 )
                 chunk_index += 1
 
+        if not chunk_rows:
+            _set_document_failed(
+                workspace_uuid,
+                document_uuid,
+                _failure_message(
+                    IngestionFailureCategory.UNSUPPORTED_CONTENT,
+                    "No usable text chunks were created from the extracted PDF text.",
+                ),
+            )
+            return {
+                "document_id": document_id,
+                "ingestion_run_id": ingestion_run_id,
+                "status": "failed",
+                "chunks_total": 0,
+                "embeddings_total": 0,
+                "embedding_tokens_used": 0,
+            }
+
         with SessionLocal() as db:
-            for row in chunk_rows:
-                db.execute(
-                    text(
-                        """
-                        INSERT INTO chunks (
-                            id, workspace_id, document_id, page_start, page_end,
-                            chunk_index, content, content_hash, token_count
-                        )
-                        VALUES (
-                            :id, :workspace_id, :document_id, :page_start, :page_end,
-                            :chunk_index, :content, :content_hash, :token_count
-                        )
-                        """
-                    ),
-                    row,
-                )
+            db.execute(
+                text(
+                    """
+                    INSERT INTO chunks (
+                        id, workspace_id, document_id, page_start, page_end,
+                        chunk_index, content, content_hash, token_count
+                    )
+                    VALUES (
+                        :id, :workspace_id, :document_id, :page_start, :page_end,
+                        :chunk_index, :content, :content_hash, :token_count
+                    )
+                    """
+                ),
+                chunk_rows,
+            )
             db.commit()
 
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        client = OpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=settings.OPENAI_EMBEDDING_TIMEOUT_SECONDS,
+        )
         model = settings.EMBEDDING_MODEL
+        embedding_batch_size = max(1, int(settings.EMBEDDING_BATCH_SIZE))
         embedding_count = 0
         total_embedding_tokens = 0
 
-        for row in chunk_rows:
-            chunk_text_value = str(row["content"])
-            estimated_tokens = _estimate_embedding_tokens(chunk_text_value)
-
+        for batch_rows in _batched(chunk_rows, embedding_batch_size):
+            estimated_tokens = sum(int(row["token_count"]) for row in batch_rows)
             with SessionLocal() as db:
                 reserve_tokens(
                     db=db,
@@ -265,9 +343,31 @@ def ingest_index(workspace_id: str, document_id: str) -> dict:
                 db.commit()
             outstanding_reservations.append(estimated_tokens)
 
-            response = client.embeddings.create(model=model, input=chunk_text_value)
-            embedding = list(response.data[0].embedding)
-            vector_literal = _embedding_to_vector_literal(embedding)
+            response = client.embeddings.create(
+                model=model,
+                input=[str(row["content"]) for row in batch_rows],
+            )
+            response_data = list(response.data)
+            if len(response_data) != len(batch_rows):
+                raise ValueError(
+                    f"Embedding batch returned {len(response_data)} vectors for {len(batch_rows)} chunks"
+                )
+            if all(getattr(item, "index", None) is not None for item in response_data):
+                response_data.sort(key=lambda item: int(item.index))
+
+            embedding_rows: list[dict[str, object]] = []
+            for row, embedding_data in zip(batch_rows, response_data, strict=True):
+                embedding_rows.append(
+                    {
+                        "chunk_id": row["id"],
+                        "workspace_id": workspace_uuid,
+                        "document_id": document_uuid,
+                        "embedding": _embedding_to_vector_literal(
+                            list(embedding_data.embedding)
+                        ),
+                        "embedding_model": model,
+                    }
+                )
 
             with SessionLocal() as db:
                 db.execute(
@@ -277,13 +377,7 @@ def ingest_index(workspace_id: str, document_id: str) -> dict:
                         VALUES (:chunk_id, :workspace_id, :document_id, CAST(:embedding AS vector), :embedding_model)
                         """
                     ),
-                    {
-                        "chunk_id": row["id"],
-                        "workspace_id": workspace_uuid,
-                        "document_id": document_uuid,
-                        "embedding": vector_literal,
-                        "embedding_model": model,
-                    },
+                    embedding_rows,
                 )
                 commit_usage(
                     db=db,
@@ -294,11 +388,13 @@ def ingest_index(workspace_id: str, document_id: str) -> dict:
                 db.commit()
             outstanding_reservations.pop()
 
-            embedding_count += 1
+            embedding_count += len(batch_rows)
             total_embedding_tokens += estimated_tokens
 
         with SessionLocal() as db:
-            final_status = "indexed" if "indexed" in _allowed_document_statuses(db) else "ready"
+            final_status = (
+                "indexed" if "indexed" in _allowed_document_statuses(db) else "ready"
+            )
             db.execute(
                 text(
                     """
@@ -310,12 +406,17 @@ def ingest_index(workspace_id: str, document_id: str) -> dict:
                       AND workspace_id = :workspace_id
                     """
                 ),
-                {"workspace_id": workspace_uuid, "document_id": document_uuid, "final_status": final_status},
+                {
+                    "workspace_id": workspace_uuid,
+                    "document_id": document_uuid,
+                    "final_status": final_status,
+                },
             )
             db.commit()
 
         return {
             "document_id": document_id,
+            "ingestion_run_id": ingestion_run_id,
             "status": final_status,
             "chunks_total": len(chunk_rows),
             "embeddings_total": embedding_count,
@@ -333,8 +434,22 @@ def ingest_index(workspace_id: str, document_id: str) -> dict:
                     )
                     db.commit()
             except Exception:  # noqa: BLE001
-                logger.exception("Failed to release reserved tokens", extra={"document_id": document_id})
-        _set_document_failed(workspace_uuid, document_uuid, "Insufficient token budget for embeddings")
+                logger.exception(
+                    "Failed to release reserved tokens",
+                    extra={
+                        "document_id": document_id,
+                        "ingestion_run_id": ingestion_run_id,
+                    },
+                )
+        _cleanup_index_artifacts(workspace_uuid, document_uuid)
+        _set_document_failed(
+            workspace_uuid,
+            document_uuid,
+            _failure_message(
+                IngestionFailureCategory.BUDGET,
+                "Insufficient token budget for embeddings. Retry after the workspace budget resets.",
+            ),
+        )
         raise
     except Exception as exc:  # noqa: BLE001
         for reserved in reversed(outstanding_reservations):
@@ -348,11 +463,29 @@ def ingest_index(workspace_id: str, document_id: str) -> dict:
                     )
                     db.commit()
             except Exception:  # noqa: BLE001
-                logger.exception("Failed to release reserved tokens", extra={"document_id": document_id})
+                logger.exception(
+                    "Failed to release reserved tokens",
+                    extra={
+                        "document_id": document_id,
+                        "ingestion_run_id": ingestion_run_id,
+                    },
+                )
 
         logger.exception(
             "ingest_index failed",
-            extra={"workspace_id": workspace_id, "document_id": document_id},
+            extra={
+                "workspace_id": workspace_id,
+                "document_id": document_id,
+                "ingestion_run_id": ingestion_run_id,
+            },
         )
-        _set_document_failed(workspace_uuid, document_uuid, str(exc))
+        _cleanup_index_artifacts(workspace_uuid, document_uuid)
+        _set_document_failed(
+            workspace_uuid,
+            document_uuid,
+            _failure_message(
+                IngestionFailureCategory.INDEXING,
+                f"Indexing failed while creating chunks or embeddings. Details: {exc}",
+            ),
+        )
         raise

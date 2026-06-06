@@ -61,8 +61,11 @@ Purpose:
 Current behavior:
 - extraction is page-based
 - temporary PDF file is written under `/tmp`
+- PDFs larger than `MAX_FILE_SIZE_BYTES` or over `MAX_PDF_PAGE_COUNT` are marked `failed`
+- scanned/image-only PDFs with no extractable text are marked `failed`
 - failures mark the document as `failed`
 - if the schema does not include `extracting`, the code falls back to `indexing`
+- batch ingestion jobs carry optional `ingestion_run_id` metadata for grouped tracing
 
 ### `jobs/ingest_index.py`
 
@@ -70,9 +73,9 @@ Purpose:
 - load extracted page text
 - split each page into chunks
 - insert chunk rows
-- reserve token budget per chunk embedding
-- call OpenAI embeddings
-- insert vectors into `chunk_embeddings`
+- reserve token budget per embedding batch
+- call OpenAI embeddings in batches
+- insert vectors into `chunk_embeddings` in batches
 - commit token usage
 - mark the document as `ready` or `indexed`
 
@@ -80,6 +83,7 @@ Current chunking behavior:
 - page-bounded chunks
 - target chunk size: `500` tokens
 - overlap: `100` tokens
+- embedding batch size is controlled by `EMBEDDING_BATCH_SIZE`
 - `tiktoken` when available, character approximation fallback otherwise
 
 Failure behavior:
@@ -130,6 +134,10 @@ OPENAI_API_KEY=sk-...
 QUEUE_NAME=ingest_extract
 RESERVATION_TTL_SECONDS=600
 EMBEDDING_MODEL=text-embedding-3-small
+MAX_FILE_SIZE_BYTES=10485760
+MAX_PDF_PAGE_COUNT=10
+MIN_EXTRACTED_TEXT_CHARS=1
+EMBEDDING_BATCH_SIZE=32
 ```
 
 ## Run
