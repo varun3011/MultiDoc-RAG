@@ -19,6 +19,41 @@ class UploadPrepareResponse(BaseModel):
     expires_in: int
 
 
+class UploadPrepareBatchFile(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    content_type: str = Field(min_length=1, max_length=100)
+    file_size_bytes: int = Field(gt=0)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=120)
+    client_file_id: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class UploadPrepareBatchRequest(BaseModel):
+    files: list[UploadPrepareBatchFile]
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+class UploadPrepareBatchItem(BaseModel):
+    index: int
+    filename: str
+    client_file_id: str | None = None
+    status: str
+    document_id: uuid.UUID | None = None
+    bucket: str | None = None
+    storage_path: str | None = None
+    upload_url: str | None = None
+    expires_in: int | None = None
+    error: str | None = None
+
+
+class UploadPrepareBatchResponse(BaseModel):
+    ingestion_run_id: uuid.UUID
+    bucket: str
+    expires_in: int
+    accepted_count: int
+    rejected_count: int
+    items: list[UploadPrepareBatchItem]
+
+
 class UploadCompleteRequest(BaseModel):
     document_id: uuid.UUID
     bucket: str = Field(min_length=1, max_length=255)
@@ -29,6 +64,26 @@ class UploadCompleteResponse(BaseModel):
     document_id: uuid.UUID
     status: str
     job_id: str
+
+
+class UploadCompleteBatchRequest(BaseModel):
+    files: list[UploadCompleteRequest]
+    ingestion_run_id: uuid.UUID | None = None
+
+
+class UploadCompleteBatchItem(BaseModel):
+    index: int
+    document_id: uuid.UUID
+    status: str
+    job_id: str | None = None
+    error: str | None = None
+
+
+class UploadCompleteBatchResponse(BaseModel):
+    ingestion_run_id: uuid.UUID | None = None
+    accepted_count: int
+    failed_count: int
+    items: list[UploadCompleteBatchItem]
 
 
 class DocumentJobResponse(BaseModel):
@@ -42,7 +97,10 @@ class DocumentListItem(BaseModel):
     filename: str
     content_type: str
     file_size_bytes: int
+    page_count: int | None = None
+    ingestion_run_id: uuid.UUID | None = None
     status: str
+    error_message: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -66,9 +124,48 @@ class DocumentDetailResponse(BaseModel):
     filename: str
     content_type: str
     file_size_bytes: int
+    ingestion_run_id: uuid.UUID | None = None
     status: str
+    error_message: str | None = None
     bucket: str
     storage_path: str
     created_at: datetime
     updated_at: datetime
     progress: DocumentProgress
+
+
+class IngestionRunStatusCounts(BaseModel):
+    pending_upload: int = 0
+    uploading: int = 0
+    uploaded: int = 0
+    extracting: int = 0
+    indexing: int = 0
+    ready: int = 0
+    indexed: int = 0
+    failed: int = 0
+    total: int = 0
+
+
+class IngestionRunResponse(BaseModel):
+    id: uuid.UUID
+    name: str | None = None
+    status: str
+    total_documents: int
+    accepted_documents: int
+    rejected_documents: int
+    document_statuses: IngestionRunStatusCounts
+    created_at: datetime
+    updated_at: datetime
+
+
+class IngestionQueueStatusItem(BaseModel):
+    name: str
+    queued_count: int
+    started_count: int
+    deferred_count: int
+    scheduled_count: int
+    failed_count: int
+
+
+class IngestionQueueStatusResponse(BaseModel):
+    queues: list[IngestionQueueStatusItem]

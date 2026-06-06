@@ -69,7 +69,7 @@ export default function AppShell() {
     }
 
     try {
-      const nextDocuments = await apiGetDocuments(accessToken);
+      const nextDocuments = await apiGetDocuments(accessToken, { limit: 100 });
       setDocuments(nextDocuments);
     } catch {
       setDocuments([]);
