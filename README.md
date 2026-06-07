@@ -174,10 +174,11 @@ sequenceDiagram
 
 What happens in practice:
 - `upload-prepare` validates file size, content type, workspace limits, and idempotency.
+- `upload-prepare-batch` can prepare many small PDFs as one ingestion run and returns per-file results.
 - The API stores a placeholder document record and returns a signed storage URL.
-- `upload-complete` confirms the object exists in storage and enqueues extraction.
+- `upload-complete` and `upload-complete-batch` confirm uploaded objects and enqueue extraction jobs.
 - `ingest_extract` downloads the PDF and writes extracted page text into `document_pages`.
-- `ingest_index` chunks page text, generates embeddings, stores vectors, and marks the document ready.
+- `ingest_index` chunks page text, generates embeddings in batches, stores vectors, and marks the document ready.
 
 Primary files:
 - `server/app/api/documents.py`
@@ -284,7 +285,11 @@ enterprise-rag/
 - `GET /documents/{document_id}`
 - `GET /documents/{document_id}/pages/{page_number}`
 - `POST /documents/upload-prepare`
+- `POST /documents/upload-prepare-batch`
 - `POST /documents/upload-complete`
+- `POST /documents/upload-complete-batch`
+- `GET /documents/ingestion-runs/{run_id}`
+- `GET /documents/ingestion-queues`
 - `POST /documents/{document_id}/retry`
 - `POST /documents/{document_id}/reindex`
 - `DELETE /documents/{document_id}`
@@ -314,6 +319,7 @@ enterprise-rag/
 Core tables in the current implementation:
 
 - `workspaces`: tenant root for all user content
+- `ingestion_runs`: batch upload and ingestion progress grouping
 - `documents`: uploaded PDF metadata and pipeline status
 - `document_pages`: extracted page text
 - `chunks`: page-bounded text chunks used for retrieval
@@ -337,7 +343,9 @@ Current enforced limits from the application config and rate limiter:
 
 - `1` workspace per user
 - up to `100` documents per workspace
-- maximum file size: `20 MB`
+- maximum file size: `10 MB`
+- maximum PDF page count: `10`
+- maximum files per backend batch upload: `50`
 - supported upload type: `application/pdf`
 - maximum query length: `500` characters
 - retrieval depth: `top_k = 5`
@@ -346,6 +354,10 @@ Current enforced limits from the application config and rate limiter:
 - upload prepare rate limit: `10` requests per minute per workspace
 - upload complete rate limit: `20` requests per minute per workspace
 - query rate limit: `100` requests per minute per workspace
+
+Bulk ingestion endpoints have separate rate limits from single-file endpoints:
+- batch upload prepare: `5` requests per minute per workspace
+- batch upload complete: `10` requests per minute per workspace
 
 ### Token Budget Model
 
@@ -487,6 +499,14 @@ DAILY_TOKEN_LIMIT=100000
 RESERVATION_TTL_SECONDS=600
 LOG_EACH_QUERY=false
 EMBEDDING_MODEL=text-embedding-3-small
+MAX_FILE_SIZE_BYTES=10485760
+MAX_PDF_PAGE_COUNT=10
+MIN_EXTRACTED_TEXT_CHARS=1
+MAX_BULK_UPLOAD_FILES=50
+EMBEDDING_BATCH_SIZE=32
+OPENAI_EMBEDDING_TIMEOUT_SECONDS=300
+INGEST_EXTRACT_JOB_TIMEOUT_SECONDS=900
+INGEST_INDEX_JOB_TIMEOUT_SECONDS=1800
 VITE_API_URL=http://localhost:8000
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
@@ -511,6 +531,7 @@ Embeddings are stored in `chunk_embeddings.embedding` using `pgvector`. Retrieva
 - failed documents can be retried with `POST /documents/{document_id}/retry`
 - already processed documents can be reindexed with `POST /documents/{document_id}/reindex`
 - stale token reservations can be cleared by the maintenance job
+- RQ extraction/indexing jobs use explicit timeouts and a failure callback so timed-out jobs mark documents `failed` instead of leaving them stuck in processing
 - document deletion removes metadata first, then attempts storage cleanup
 
 ### Frontend Application Areas

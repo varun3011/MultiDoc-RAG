@@ -11,6 +11,30 @@ CREATE TABLE IF NOT EXISTS workspaces (
 
 CREATE INDEX IF NOT EXISTS idx_workspaces_owner ON workspaces(owner_id);
 
+CREATE TABLE IF NOT EXISTS ingestion_runs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    name TEXT,
+    status TEXT NOT NULL DEFAULT 'preparing',
+    total_documents INT NOT NULL DEFAULT 0,
+    accepted_documents INT NOT NULL DEFAULT 0,
+    rejected_documents INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_ingestion_runs_status CHECK (status IN ('preparing', 'processing', 'completed', 'partial', 'failed')),
+    CONSTRAINT chk_ingestion_runs_counts CHECK (
+        total_documents >= 0
+        AND accepted_documents >= 0
+        AND rejected_documents >= 0
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_ingestion_runs_workspace_created
+    ON ingestion_runs(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ingestion_runs_workspace_status
+    ON ingestion_runs(workspace_id, status);
+
 CREATE TABLE IF NOT EXISTS documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -19,12 +43,13 @@ CREATE TABLE IF NOT EXISTS documents (
     page_count INT,
     file_hash_sha256 TEXT NOT NULL,
     storage_path TEXT NOT NULL,
+    ingestion_run_id UUID,
     status TEXT NOT NULL DEFAULT 'pending_upload',
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT chk_file_size CHECK (file_size_bytes > 0 AND file_size_bytes <= 20971520),
+    CONSTRAINT chk_file_size CHECK (file_size_bytes > 0 AND file_size_bytes <= 10485760),
     CONSTRAINT chk_page_count CHECK (page_count IS NULL OR (page_count > 0 AND page_count <= 10)),
     CONSTRAINT chk_status CHECK (status IN ('pending_upload', 'uploaded', 'indexing', 'ready', 'failed'))
 );
@@ -33,6 +58,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_workspace_hash
     ON documents(workspace_id, file_hash_sha256);
 CREATE INDEX IF NOT EXISTS idx_documents_workspace ON documents(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_documents_workspace_status ON documents(workspace_id, status);
+
+ALTER TABLE documents
+    ADD COLUMN IF NOT EXISTS ingestion_run_id UUID;
+
+DO $$
+BEGIN
+    ALTER TABLE documents
+        ADD CONSTRAINT fk_documents_ingestion_run
+        FOREIGN KEY (ingestion_run_id)
+        REFERENCES ingestion_runs(id)
+        ON DELETE SET NULL;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_documents_ingestion_run
+    ON documents(workspace_id, ingestion_run_id);
 
 CREATE TABLE IF NOT EXISTS document_pages (
     id BIGSERIAL PRIMARY KEY,

@@ -28,9 +28,16 @@ class Settings(BaseSettings):
     MAX_QUESTION_CHARS: int = 500
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIM: int = 1536
+    OPENAI_EMBEDDING_TIMEOUT_SECONDS: int = 300
     LOG_EACH_QUERY: bool = False
-    MAX_FILE_SIZE_BYTES: int = 20 * 1024 * 1024
+    MAX_FILE_SIZE_BYTES: int = 10 * 1024 * 1024
+    MAX_PDF_PAGE_COUNT: int = 10
+    MIN_EXTRACTED_TEXT_CHARS: int = 1
     MAX_DOCUMENTS_PER_WORKSPACE: int = 100
+    MAX_BULK_UPLOAD_FILES: int = 50
+    EMBEDDING_BATCH_SIZE: int = 32
+    INGEST_EXTRACT_JOB_TIMEOUT_SECONDS: int = 900
+    INGEST_INDEX_JOB_TIMEOUT_SECONDS: int = 1800
     ALLOWED_CONTENT_TYPES: list[str] = Field(default_factory=lambda: ["application/pdf"])
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

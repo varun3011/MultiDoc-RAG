@@ -90,14 +90,19 @@ Primary files:
 Upload UX is centered in `UploadPage` and `components/upload/UploadPanel`.
 
 Flow:
-1. request `POST /documents/upload-prepare`
-2. upload the PDF directly to the signed URL
-3. notify the backend with `POST /documents/upload-complete`
-4. poll the document list while processing is active
-5. let the user delete documents from the table
+1. select and review up to 50 PDFs as one upload run
+2. request `POST /documents/upload-prepare-batch`
+3. upload accepted PDFs directly to their signed URLs
+4. notify the backend with `POST /documents/upload-complete-batch`
+5. poll documents, queue status, and the active ingestion run while processing is active
+6. separate active, failed, and ready documents for recovery and review
 
 Current behavior:
-- shows live document status in a table
+- shows selected files before upload starts
+- shows accepted/rejected/processing/ready/failed counts for the current run
+- shows live document status grouped by workflow state
+- supports search, status filtering, and sorting for larger document sets
+- supports retrying failed documents individually or in a retryable batch
 - refreshes every 4 seconds while documents are processing
 - treats `ready` and `indexed` as successful ingest states
 
@@ -145,7 +150,12 @@ The client currently uses these backend APIs:
 - `GET /documents/{document_id}/pages/{page_number}`
 - `POST /documents/upload-prepare`
 - `POST /documents/upload-complete`
+- `POST /documents/upload-prepare-batch`
+- `POST /documents/upload-complete-batch`
+- `GET /documents/ingestion-runs/{run_id}`
+- `GET /documents/ingestion-queues`
 - `DELETE /documents/{document_id}`
+- `POST /documents/{document_id}/retry`
 - `POST /query/stream`
 - `GET /citations/{chunk_id}`
 - `GET /queries`

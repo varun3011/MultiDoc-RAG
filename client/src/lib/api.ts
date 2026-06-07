@@ -41,6 +41,7 @@ export type DocumentRecord = {
   status: DocumentStatus;
   page_count?: number | null;
   file_size_bytes?: number;
+  ingestion_run_id?: string | null;
   created_at?: string;
   updated_at?: string;
   error_message?: string | null;
@@ -60,10 +61,99 @@ export type UploadCompleteResponse = {
   job_id?: string;
 };
 
+export type UploadPrepareBatchFile = {
+  filename: string;
+  content_type: string;
+  file_size_bytes: number;
+  idempotency_key?: string;
+  client_file_id?: string;
+};
+
+export type UploadPrepareBatchItem = {
+  index: number;
+  filename: string;
+  client_file_id?: string | null;
+  status: string;
+  document_id?: string | null;
+  bucket?: string | null;
+  storage_path?: string | null;
+  upload_url?: string | null;
+  expires_in?: number | null;
+  error?: string | null;
+};
+
+export type UploadPrepareBatchResponse = {
+  ingestion_run_id: string;
+  bucket: string;
+  expires_in: number;
+  accepted_count: number;
+  rejected_count: number;
+  items: UploadPrepareBatchItem[];
+};
+
+export type UploadCompleteBatchFile = {
+  document_id: string;
+  bucket: string;
+  storage_path: string;
+};
+
+export type UploadCompleteBatchItem = {
+  index: number;
+  document_id: string;
+  status: string;
+  job_id?: string | null;
+  error?: string | null;
+};
+
+export type UploadCompleteBatchResponse = {
+  ingestion_run_id?: string | null;
+  accepted_count: number;
+  failed_count: number;
+  items: UploadCompleteBatchItem[];
+};
+
 export type DocumentJobResponse = {
   document_id: string;
   status: string;
   job_id: string;
+};
+
+export type IngestionRunStatusCounts = {
+  pending_upload: number;
+  uploading: number;
+  queued: number;
+  uploaded: number;
+  extracting: number;
+  indexing: number;
+  ready: number;
+  indexed: number;
+  failed: number;
+  total: number;
+};
+
+export type IngestionRunResponse = {
+  id: string;
+  name?: string | null;
+  status: string;
+  total_documents: number;
+  accepted_documents: number;
+  rejected_documents: number;
+  document_statuses: IngestionRunStatusCounts;
+  created_at: string;
+  updated_at: string;
+};
+
+export type IngestionQueueStatusItem = {
+  name: string;
+  queued_count: number;
+  started_count: number;
+  deferred_count: number;
+  scheduled_count: number;
+  failed_count: number;
+};
+
+export type IngestionQueueStatusResponse = {
+  queues: IngestionQueueStatusItem[];
 };
 
 export type QueryCitation = {
@@ -336,16 +426,13 @@ function ensureUsage(value: unknown): UsageToday {
 function normalizeDocumentStatus(input: unknown): DocumentStatus {
   const status = String(input ?? "uploaded").toLowerCase();
 
-  if (status === "ready") {
-    return "indexed";
-  }
-
   if (
     status === "pending_upload" ||
     status === "uploaded" ||
     status === "queued" ||
     status === "extracting" ||
     status === "indexing" ||
+    status === "ready" ||
     status === "indexed" ||
     status === "failed"
   ) {
@@ -371,6 +458,7 @@ function normalizeDocument(rawDoc: unknown): DocumentRecord | null {
     status: normalizeDocumentStatus(raw.status),
     page_count: raw.page_count == null ? null : Number(raw.page_count),
     file_size_bytes: raw.file_size_bytes == null ? undefined : Number(raw.file_size_bytes),
+    ingestion_run_id: raw.ingestion_run_id == null ? null : String(raw.ingestion_run_id),
     created_at: raw.created_at ? String(raw.created_at) : undefined,
     updated_at: raw.updated_at ? String(raw.updated_at) : undefined,
     error_message: raw.error_message ? String(raw.error_message) : null,
@@ -424,8 +512,19 @@ export function apiAuthMe(token: string): Promise<AuthMeResponse> {
   return apiGetAuthMe(token);
 }
 
-export async function apiGetDocuments(token: string): Promise<DocumentRecord[]> {
-  const payload = await apiRequest<unknown>("/documents", token, { method: "GET" });
+export async function apiGetDocuments(token: string, params?: { limit?: number; offset?: number; status?: string }): Promise<DocumentRecord[]> {
+  const search = new URLSearchParams();
+  if (typeof params?.limit === "number") {
+    search.set("limit", String(params.limit));
+  }
+  if (typeof params?.offset === "number") {
+    search.set("offset", String(params.offset));
+  }
+  if (params?.status) {
+    search.set("status", params.status);
+  }
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  const payload = await apiRequest<unknown>(`/documents${suffix}`, token, { method: "GET" });
   return normalizeDocuments(payload);
 }
 
@@ -490,6 +589,34 @@ export function apiUploadComplete(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function apiUploadPrepareBatch(
+  token: string,
+  payload: { files: UploadPrepareBatchFile[]; name?: string },
+): Promise<UploadPrepareBatchResponse> {
+  return apiRequest<UploadPrepareBatchResponse>("/documents/upload-prepare-batch", token, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function apiUploadCompleteBatch(
+  token: string,
+  payload: { files: UploadCompleteBatchFile[]; ingestion_run_id?: string | null },
+): Promise<UploadCompleteBatchResponse> {
+  return apiRequest<UploadCompleteBatchResponse>("/documents/upload-complete-batch", token, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function apiGetIngestionRun(token: string, runId: string): Promise<IngestionRunResponse> {
+  return apiRequest<IngestionRunResponse>(`/documents/ingestion-runs/${runId}`, token, { method: "GET" });
+}
+
+export function apiGetIngestionQueues(token: string): Promise<IngestionQueueStatusResponse> {
+  return apiRequest<IngestionQueueStatusResponse>("/documents/ingestion-queues", token, { method: "GET" });
 }
 
 export async function apiUploadDocument(token: string, file: File): Promise<UploadCompleteResponse> {

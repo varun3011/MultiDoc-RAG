@@ -1,25 +1,4 @@
-version: '3.8'
-
 services:
-  # PostgreSQL (local dev only - production uses Supabase)
-  postgres:
-    image: pgvector/pgvector:pg16
-    container_name: rag-postgres
-    environment:
-      POSTGRES_DB: enterprise_rag
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   # Redis (queue backend + cache)
   redis:
     image: redis:7-alpine
@@ -49,6 +28,10 @@ services:
       - SUPABASE_KEY=${SUPABASE_KEY}
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_EMBEDDING_TIMEOUT_SECONDS=${OPENAI_EMBEDDING_TIMEOUT_SECONDS:-300}
+      - INGEST_EXTRACT_JOB_TIMEOUT_SECONDS=${INGEST_EXTRACT_JOB_TIMEOUT_SECONDS:-900}
+      - INGEST_INDEX_JOB_TIMEOUT_SECONDS=${INGEST_INDEX_JOB_TIMEOUT_SECONDS:-1800}
+      - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-32}
       - ENVIRONMENT=development
     volumes:
       - ./server:/app
@@ -56,8 +39,6 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -74,6 +55,10 @@ services:
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - SUPABASE_KEY=${SUPABASE_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_EMBEDDING_TIMEOUT_SECONDS=${OPENAI_EMBEDDING_TIMEOUT_SECONDS:-300}
+      - INGEST_EXTRACT_JOB_TIMEOUT_SECONDS=${INGEST_EXTRACT_JOB_TIMEOUT_SECONDS:-900}
+      - INGEST_INDEX_JOB_TIMEOUT_SECONDS=${INGEST_INDEX_JOB_TIMEOUT_SECONDS:-1800}
+      - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-32}
       - QUEUE_NAME=ingest_extract
       - WORKER_COUNT=5
     volumes:
@@ -81,7 +66,6 @@ services:
       - ./server/app:/app/shared  # Share code
     depends_on:
       - redis
-      - postgres
     deploy:
       replicas: 5
     command: python worker.py ingest_extract
@@ -98,6 +82,10 @@ services:
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - SUPABASE_KEY=${SUPABASE_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_EMBEDDING_TIMEOUT_SECONDS=${OPENAI_EMBEDDING_TIMEOUT_SECONDS:-300}
+      - INGEST_EXTRACT_JOB_TIMEOUT_SECONDS=${INGEST_EXTRACT_JOB_TIMEOUT_SECONDS:-900}
+      - INGEST_INDEX_JOB_TIMEOUT_SECONDS=${INGEST_INDEX_JOB_TIMEOUT_SECONDS:-1800}
+      - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-32}
       - QUEUE_NAME=ingest_index
       - WORKER_COUNT=3
     volumes:
@@ -105,7 +93,6 @@ services:
       - ./server/app:/app/shared
     depends_on:
       - redis
-      - postgres
     deploy:
       replicas: 3
     command: python worker.py ingest_index
@@ -140,6 +127,5 @@ services:
     command: npm run dev -- --host 0.0.0.0
 
 volumes:
-  postgres_data:
   redis_data:
   client_node_modules:
