@@ -5,10 +5,17 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+def _validate_http_url(url: str) -> None:
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise RuntimeError(f"Refusing non-HTTP URL: {url}")
 
 
 def _json_request(
@@ -19,6 +26,7 @@ def _json_request(
     request_timeout_seconds: float,
     payload: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    _validate_http_url(url)
     body = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(
         url,
@@ -30,7 +38,7 @@ def _json_request(
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=request_timeout_seconds) as response:
+        with urllib.request.urlopen(request, timeout=request_timeout_seconds) as response:  # nosec B310
             response_body = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -39,6 +47,7 @@ def _json_request(
 
 
 def _put_file(url: str, path: Path) -> None:
+    _validate_http_url(url)
     request = urllib.request.Request(
         url,
         data=path.read_bytes(),
@@ -46,11 +55,22 @@ def _put_file(url: str, path: Path) -> None:
         headers={"Content-Type": "application/pdf"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with urllib.request.urlopen(request, timeout=120) as response:  # nosec B310
             response.read()
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"PUT upload failed with {exc.code}: {detail}") from exc
+
+
+def _redact_upload_urls(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: "[redacted]" if key == "upload_url" else _redact_upload_urls(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_upload_urls(item) for item in value]
+    return value
 
 
 def _pdf_bytes(title: str, body: str) -> bytes:
@@ -215,7 +235,7 @@ def run_load_test(args: argparse.Namespace) -> dict[str, Any]:
         "scenario": args.scenario,
         "requested_count": args.count,
         "ingestion_run_id": prepare.get("ingestion_run_id"),
-        "prepare": prepare,
+        "prepare": _redact_upload_urls(prepare),
         "complete": complete,
         "final_run": run,
         "documents": documents,

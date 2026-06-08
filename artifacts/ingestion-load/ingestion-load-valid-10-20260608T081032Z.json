@@ -1,643 +1,643 @@
-{
-  "generated_at": "2026-06-08T08:09:28.032939+00:00",
-  "api_base": "http://localhost:8000",
-  "scenario": "valid",
-  "requested_count": 10,
-  "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-  "prepare": {
-    "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-    "bucket": "documents",
-    "expires_in": 600,
-    "accepted_count": 10,
-    "rejected_count": 0,
-    "items": [
-      {
-        "index": 0,
-        "filename": "load-valid-001.pdf",
-        "client_file_id": "load-valid-001",
-        "status": "prepared",
-        "document_id": "db415368-a778-471d-9124-19b37289e59e",
-        "bucket": "documents",
-        "storage_path": "aa110712-618b-4bba-8556-e256b8aa4df0/db415368-a778-471d-9124-19b37289e59e/load-valid-001.pdf",
-        "upload_url": "https://zhjqjxuazqrgrzxzhztl.supabase.co/storage/v1/object/upload/sign/documents/aa110712-618b-4bba-8556-e256b8aa4df0/db415368-a778-471d-9124-19b37289e59e/load-valid-001.pdf?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZTJkYjI4ZC03MzM1LTQ4MGItOGY2Yy03N2U4NTA2N2FiYjYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJkb2N1bWVudHMvYWExMTA3MTItNjE4Yi00YmJhLTg1NTYtZTI1NmI4YWE0ZGYwL2RiNDE1MzY4LWE3NzgtNDcxZC05MTI0LTE5YjM3Mjg5ZTU5ZS9sb2FkLXZhbGlkLTAwMS5wZGYiLCJ1cHNlcnQiOmZhbHNlLCJpYXQiOjE3ODA5MDYxNzEsImV4cCI6MTc4MDkxMzM3MX0.aDudfgOIarApTGlgAqjKBRmjiEC9NOUUhYjxK2hvUe0",
-        "expires_in": 600,
-        "error": null
-      },
-      {
-        "index": 1,
-        "filename": "load-valid-002.pdf",
-        "client_file_id": "load-valid-002",
-        "status": "prepared",
-        "document_id": "f71d14a2-2517-49e9-b0b0-8cc90d11c793",
-        "bucket": "documents",
-        "storage_path": "aa110712-618b-4bba-8556-e256b8aa4df0/f71d14a2-2517-49e9-b0b0-8cc90d11c793/load-valid-002.pdf",
-        "upload_url": "https://zhjqjxuazqrgrzxzhztl.supabase.co/storage/v1/object/upload/sign/documents/aa110712-618b-4bba-8556-e256b8aa4df0/f71d14a2-2517-49e9-b0b0-8cc90d11c793/load-valid-002.pdf?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZTJkYjI4ZC03MzM1LTQ4MGItOGY2Yy03N2U4NTA2N2FiYjYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJkb2N1bWVudHMvYWExMTA3MTItNjE4Yi00YmJhLTg1NTYtZTI1NmI4YWE0ZGYwL2Y3MWQxNGEyLTI1MTctNDllOS1iMGIwLThjYzkwZDExYzc5My9sb2FkLXZhbGlkLTAwMi5wZGYiLCJ1cHNlcnQiOmZhbHNlLCJpYXQiOjE3ODA5MDYxNzIsImV4cCI6MTc4MDkxMzM3Mn0.V9Np2ZgNMdeHpJWtg_ECnx1fwbjAt-gwU5bKBIrxwEs",
-        "expires_in": 600,
-        "error": null
-      },
-      {
-        "index": 2,
-        "filename": "load-valid-003.pdf",
-        "client_file_id": "load-valid-003",
-        "status": "prepared",
-        "document_id": "5c049412-054f-42e1-9e13-023823e8aad2",
-        "bucket": "documents",
-        "storage_path": "aa110712-618b-4bba-8556-e256b8aa4df0/5c049412-054f-42e1-9e13-023823e8aad2/load-valid-003.pdf",
-        "upload_url": "https://zhjqjxuazqrgrzxzhztl.supabase.co/storage/v1/object/upload/sign/documents/aa110712-618b-4bba-8556-e256b8aa4df0/5c049412-054f-42e1-9e13-023823e8aad2/load-valid-003.pdf?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZTJkYjI4ZC03MzM1LTQ4MGItOGY2Yy03N2U4NTA2N2FiYjYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJkb2N1bWVudHMvYWExMTA3MTItNjE4Yi00YmJhLTg1NTYtZTI1NmI4YWE0ZGYwLzVjMDQ5NDEyLTA1NGYtNDJlMS05ZTEzLTAyMzgyM2U4YWFkMi9sb2FkLXZhbGlkLTAwMy5wZGYiLCJ1cHNlcnQiOmZhbHNlLCJpYXQiOjE3ODA5MDYxNzIsImV4cCI6MTc4MDkxMzM3Mn0.dUvGK4QQuk_lVs4xZ4EMUO1b5n0VsLozQdfpvMH3MnI",
-        "expires_in": 600,
-        "error": null
-      },
-      {
-        "index": 3,
-        "filename": "load-valid-004.pdf",
-        "client_file_id": "load-valid-004",
-        "status": "prepared",
-        "document_id": "9232b00d-0b56-4eca-a273-e569546850c4",
-        "bucket": "documents",
-        "storage_path": "aa110712-618b-4bba-8556-e256b8aa4df0/9232b00d-0b56-4eca-a273-e569546850c4/load-valid-004.pdf",
-        "upload_url": "https://zhjqjxuazqrgrzxzhztl.supabase.co/storage/v1/object/upload/sign/documents/aa110712-618b-4bba-8556-e256b8aa4df0/9232b00d-0b56-4eca-a273-e569546850c4/load-valid-004.pdf?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZTJkYjI4ZC03MzM1LTQ4MGItOGY2Yy03N2U4NTA2N2FiYjYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJkb2N1bWVudHMvYWExMTA3MTItNjE4Yi00YmJhLTg1NTYtZTI1NmI4YWE0ZGYwLzkyMzJiMDBkLTBiNTYtNGVjYS1hMjczLWU1Njk1NDY4NTBjNC9sb2FkLXZhbGlkLTAwNC5wZGYiLCJ1cHNlcnQiOmZhbHNlLCJpYXQiOjE3ODA5MDYxNzMsImV4cCI6MTc4MDkxMzM3M30.RJw5lEEuA-uHgMhWBHr1Jte9cXQLVZxB9bGIDQFLLHg",
-        "expires_in": 600,
-        "error": null
-      },
-      {
-        "index": 4,
-        "filename": "load-valid-005.pdf",
-        "client_file_id": "load-valid-005",
-        "status": "prepared",
-        "document_id": "dd32e7ab-cd98-4324-8787-5750afe6f34e",
-        "bucket": "documents",
-        "storage_path": "aa110712-618b-4bba-8556-e256b8aa4df0/dd32e7ab-cd98-4324-8787-5750afe6f34e/load-valid-005.pdf",
-        "upload_url": "https://zhjqjxuazqrgrzxzhztl.supabase.co/storage/v1/object/upload/sign/documents/aa110712-618b-4bba-8556-e256b8aa4df0/dd32e7ab-cd98-4324-8787-5750afe6f34e/load-valid-005.pdf?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZTJkYjI4ZC03MzM1LTQ4MGItOGY2Yy03N2U4NTA2N2FiYjYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJkb2N1bWVudHMvYWExMTA3MTItNjE4Yi00YmJhLTg1NTYtZTI1NmI4YWE0ZGYwL2RkMzJlN2FiLWNkOTgtNDMyNC04Nzg3LTU3NTBhZmU2ZjM0ZS9sb2FkLXZhbGlkLTAwNS5wZGYiLCJ1cHNlcnQiOmZhbHNlLCJpYXQiOjE3ODA5MDYxNzMsImV4cCI6MTc4MDkxMzM3M30.ny3Jmea5kqsA5FA338YuuF26SO7wjvNTtA8TY19GdZw",
-        "expires_in": 600,
-        "error": null
-      },
-      {
-        "index": 5,
-        "filename": "load-valid-006.pdf",
-        "client_file_id": "load-valid-006",
-        "status": "prepared",
-        "document_id": "f5e94ccb-2c27-4772-8c19-652dad8bbb73",
-        "bucket": "documents",
-        "storage_path": "aa110712-618b-4bba-8556-e256b8aa4df0/f5e94ccb-2c27-4772-8c19-652dad8bbb73/load-valid-006.pdf",
-        "upload_url": "https://zhjqjxuazqrgrzxzhztl.supabase.co/storage/v1/object/upload/sign/documents/aa110712-618b-4bba-8556-e256b8aa4df0/f5e94ccb-2c27-4772-8c19-652dad8bbb73/load-valid-006.pdf?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZTJkYjI4ZC03MzM1LTQ4MGItOGY2Yy03N2U4NTA2N2FiYjYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJkb2N1bWVudHMvYWExMTA3MTItNjE4Yi00YmJhLTg1NTYtZTI1NmI4YWE0ZGYwL2Y1ZTk0Y2NiLTJjMjctNDc3Mi04YzE5LTY1MmRhZDhiYmI3My9sb2FkLXZhbGlkLTAwNi5wZGYiLCJ1cHNlcnQiOmZhbHNlLCJpYXQiOjE3ODA5MDYxNzQsImV4cCI6MTc4MDkxMzM3NH0.sNS1Qt8ebtfGTwRhnNPdzaI2ZKsP-Z3smjxYj2OqGIE",
-        "expires_in": 600,
-        "error": null
-      },
-      {
-        "index": 6,
-        "filename": "load-valid-007.pdf",
-        "client_file_id": "load-valid-007",
-        "status": "prepared",
-        "document_id": "d91d171e-bb4e-42b3-8d5c-3a7135fd8134",
-        "bucket": "documents",
-        "storage_path": "aa110712-618b-4bba-8556-e256b8aa4df0/d91d171e-bb4e-42b3-8d5c-3a7135fd8134/load-valid-007.pdf",
-        "upload_url": "https://zhjqjxuazqrgrzxzhztl.supabase.co/storage/v1/object/upload/sign/documents/aa110712-618b-4bba-8556-e256b8aa4df0/d91d171e-bb4e-42b3-8d5c-3a7135fd8134/load-valid-007.pdf?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZTJkYjI4ZC03MzM1LTQ4MGItOGY2Yy03N2U4NTA2N2FiYjYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJkb2N1bWVudHMvYWExMTA3MTItNjE4Yi00YmJhLTg1NTYtZTI1NmI4YWE0ZGYwL2Q5MWQxNzFlLWJiNGUtNDJiMy04ZDVjLTNhNzEzNWZkODEzNC9sb2FkLXZhbGlkLTAwNy5wZGYiLCJ1cHNlcnQiOmZhbHNlLCJpYXQiOjE3ODA5MDYxNzUsImV4cCI6MTc4MDkxMzM3NX0.hQ844t-kptVx2528DoZAgnqKfoOuNjRdVGC5-V_1dSE",
-        "expires_in": 600,
-        "error": null
-      },
-      {
-        "index": 7,
-        "filename": "load-valid-008.pdf",
-        "client_file_id": "load-valid-008",
-        "status": "prepared",
-        "document_id": "2a79108e-dc8e-41f6-b08f-9932d2836602",
-        "bucket": "documents",
-        "storage_path": "aa110712-618b-4bba-8556-e256b8aa4df0/2a79108e-dc8e-41f6-b08f-9932d2836602/load-valid-008.pdf",
-        "upload_url": "https://zhjqjxuazqrgrzxzhztl.supabase.co/storage/v1/object/upload/sign/documents/aa110712-618b-4bba-8556-e256b8aa4df0/2a79108e-dc8e-41f6-b08f-9932d2836602/load-valid-008.pdf?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZTJkYjI4ZC03MzM1LTQ4MGItOGY2Yy03N2U4NTA2N2FiYjYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJkb2N1bWVudHMvYWExMTA3MTItNjE4Yi00YmJhLTg1NTYtZTI1NmI4YWE0ZGYwLzJhNzkxMDhlLWRjOGUtNDFmNi1iMDhmLTk5MzJkMjgzNjYwMi9sb2FkLXZhbGlkLTAwOC5wZGYiLCJ1cHNlcnQiOmZhbHNlLCJpYXQiOjE3ODA5MDYxNzUsImV4cCI6MTc4MDkxMzM3NX0.C0rmNkcpA0jnCwFdVqT2IIGea3TKOv5_RXHI6TEg8A8",
-        "expires_in": 600,
-        "error": null
-      },
-      {
-        "index": 8,
-        "filename": "load-valid-009.pdf",
-        "client_file_id": "load-valid-009",
-        "status": "prepared",
-        "document_id": "b9073464-28ec-476a-bac8-0971193d9f2f",
-        "bucket": "documents",
-        "storage_path": "aa110712-618b-4bba-8556-e256b8aa4df0/b9073464-28ec-476a-bac8-0971193d9f2f/load-valid-009.pdf",
-        "upload_url": "https://zhjqjxuazqrgrzxzhztl.supabase.co/storage/v1/object/upload/sign/documents/aa110712-618b-4bba-8556-e256b8aa4df0/b9073464-28ec-476a-bac8-0971193d9f2f/load-valid-009.pdf?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZTJkYjI4ZC03MzM1LTQ4MGItOGY2Yy03N2U4NTA2N2FiYjYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJkb2N1bWVudHMvYWExMTA3MTItNjE4Yi00YmJhLTg1NTYtZTI1NmI4YWE0ZGYwL2I5MDczNDY0LTI4ZWMtNDc2YS1iYWM4LTA5NzExOTNkOWYyZi9sb2FkLXZhbGlkLTAwOS5wZGYiLCJ1cHNlcnQiOmZhbHNlLCJpYXQiOjE3ODA5MDYxNzYsImV4cCI6MTc4MDkxMzM3Nn0.yrsw2MXX5ducqV0SdGD-k4vfXHCk9L4tTEUkAjPBieo",
-        "expires_in": 600,
-        "error": null
-      },
-      {
-        "index": 9,
-        "filename": "load-valid-010.pdf",
-        "client_file_id": "load-valid-010",
-        "status": "prepared",
-        "document_id": "148116bf-a6c2-4935-a2fa-48ad7a0c31ee",
-        "bucket": "documents",
-        "storage_path": "aa110712-618b-4bba-8556-e256b8aa4df0/148116bf-a6c2-4935-a2fa-48ad7a0c31ee/load-valid-010.pdf",
-        "upload_url": "https://zhjqjxuazqrgrzxzhztl.supabase.co/storage/v1/object/upload/sign/documents/aa110712-618b-4bba-8556-e256b8aa4df0/148116bf-a6c2-4935-a2fa-48ad7a0c31ee/load-valid-010.pdf?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV8yZTJkYjI4ZC03MzM1LTQ4MGItOGY2Yy03N2U4NTA2N2FiYjYiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJkb2N1bWVudHMvYWExMTA3MTItNjE4Yi00YmJhLTg1NTYtZTI1NmI4YWE0ZGYwLzE0ODExNmJmLWE2YzItNDkzNS1hMmZhLTQ4YWQ3YTBjMzFlZS9sb2FkLXZhbGlkLTAxMC5wZGYiLCJ1cHNlcnQiOmZhbHNlLCJpYXQiOjE3ODA5MDYxNzcsImV4cCI6MTc4MDkxMzM3N30.cOMGzRFaCx6EN45eYQpr1MvvBjXUKF_Ley8bvljTNDI",
-        "expires_in": 600,
-        "error": null
-      }
-    ]
-  },
-  "complete": {
-    "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-    "accepted_count": 10,
-    "failed_count": 0,
-    "items": [
-      {
-        "index": 0,
-        "document_id": "db415368-a778-471d-9124-19b37289e59e",
-        "status": "uploaded",
-        "job_id": "1ad608cb-fbb5-4880-aff9-fd4aa6e172a1",
-        "error": null
-      },
-      {
-        "index": 1,
-        "document_id": "f71d14a2-2517-49e9-b0b0-8cc90d11c793",
-        "status": "uploaded",
-        "job_id": "71dd15ca-f398-4581-b4ef-7715e437325e",
-        "error": null
-      },
-      {
-        "index": 2,
-        "document_id": "5c049412-054f-42e1-9e13-023823e8aad2",
-        "status": "uploaded",
-        "job_id": "ec7732a5-631c-4053-a548-f6a4a7293ebc",
-        "error": null
-      },
-      {
-        "index": 3,
-        "document_id": "9232b00d-0b56-4eca-a273-e569546850c4",
-        "status": "uploaded",
-        "job_id": "fdefd8b1-aed4-45b6-9622-820a8c275cbc",
-        "error": null
-      },
-      {
-        "index": 4,
-        "document_id": "dd32e7ab-cd98-4324-8787-5750afe6f34e",
-        "status": "uploaded",
-        "job_id": "f6d690c6-8a2a-4b73-977a-ab236550082b",
-        "error": null
-      },
-      {
-        "index": 5,
-        "document_id": "f5e94ccb-2c27-4772-8c19-652dad8bbb73",
-        "status": "uploaded",
-        "job_id": "23f87c3e-a3d2-412f-9254-e9b5b2234007",
-        "error": null
-      },
-      {
-        "index": 6,
-        "document_id": "d91d171e-bb4e-42b3-8d5c-3a7135fd8134",
-        "status": "uploaded",
-        "job_id": "09fcb24a-36cd-4693-b529-e41a814ad390",
-        "error": null
-      },
-      {
-        "index": 7,
-        "document_id": "2a79108e-dc8e-41f6-b08f-9932d2836602",
-        "status": "uploaded",
-        "job_id": "ea351d34-4de4-4c36-ace3-fa018115f6e9",
-        "error": null
-      },
-      {
-        "index": 8,
-        "document_id": "b9073464-28ec-476a-bac8-0971193d9f2f",
-        "status": "uploaded",
-        "job_id": "ecc1b7f6-ba30-41f1-9d14-7c6200f2d8c7",
-        "error": null
-      },
-      {
-        "index": 9,
-        "document_id": "148116bf-a6c2-4935-a2fa-48ad7a0c31ee",
-        "status": "uploaded",
-        "job_id": "3134b26c-1334-4bce-bf67-ef2eb93a4469",
-        "error": null
-      }
-    ]
-  },
-  "final_run": {
-    "id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-    "name": "load-valid-10-2026-06-08T08:09:28.032939+00:00",
-    "status": "completed",
-    "total_documents": 10,
-    "accepted_documents": 10,
-    "rejected_documents": 0,
-    "document_statuses": {
-      "pending_upload": 0,
-      "uploading": 0,
-      "uploaded": 0,
-      "extracting": 0,
-      "indexing": 0,
-      "ready": 0,
-      "indexed": 10,
-      "failed": 0,
-      "total": 10
-    },
-    "created_at": "2026-06-08T08:09:37.392806Z",
-    "updated_at": "2026-06-08T08:10:29.829994Z"
-  },
-  "documents": {
-    "items": [
-      {
-        "id": "f5e94ccb-2c27-4772-8c19-652dad8bbb73",
-        "filename": "load-valid-006.pdf",
-        "content_type": "application/pdf",
-        "file_size_bytes": 714,
-        "page_count": 1,
-        "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-        "status": "indexed",
-        "error_message": null,
-        "created_at": "2026-06-08T08:09:30.491797Z",
-        "updated_at": "2026-06-08T08:10:09.552363Z",
-        "timing": {
-          "upload_completed_at": "2026-06-08T08:09:52.473267Z",
-          "extract_enqueued_at": "2026-06-08T08:09:52.473267Z",
-          "extract_started_at": "2026-06-08T08:09:55.219272Z",
-          "extract_finished_at": "2026-06-08T08:09:56.375791Z",
-          "index_enqueued_at": "2026-06-08T08:09:56.959675Z",
-          "index_started_at": "2026-06-08T08:10:05.404586Z",
-          "index_finished_at": "2026-06-08T08:10:09.552363Z"
-        }
-      },
-      {
-        "id": "d91d171e-bb4e-42b3-8d5c-3a7135fd8134",
-        "filename": "load-valid-007.pdf",
-        "content_type": "application/pdf",
-        "file_size_bytes": 714,
-        "page_count": 1,
-        "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-        "status": "indexed",
-        "error_message": null,
-        "created_at": "2026-06-08T08:09:30.491797Z",
-        "updated_at": "2026-06-08T08:10:14.689817Z",
-        "timing": {
-          "upload_completed_at": "2026-06-08T08:09:53.646986Z",
-          "extract_enqueued_at": "2026-06-08T08:09:53.646986Z",
-          "extract_started_at": "2026-06-08T08:09:57.032920Z",
-          "extract_finished_at": "2026-06-08T08:09:58.187896Z",
-          "index_enqueued_at": "2026-06-08T08:09:58.770841Z",
-          "index_started_at": "2026-06-08T08:10:10.883507Z",
-          "index_finished_at": "2026-06-08T08:10:14.689817Z"
-        }
-      },
-      {
-        "id": "2a79108e-dc8e-41f6-b08f-9932d2836602",
-        "filename": "load-valid-008.pdf",
-        "content_type": "application/pdf",
-        "file_size_bytes": 714,
-        "page_count": 1,
-        "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-        "status": "indexed",
-        "error_message": null,
-        "created_at": "2026-06-08T08:09:30.491797Z",
-        "updated_at": "2026-06-08T08:10:15.138869Z",
-        "timing": {
-          "upload_completed_at": "2026-06-08T08:09:54.860222Z",
-          "extract_enqueued_at": "2026-06-08T08:09:54.860222Z",
-          "extract_started_at": "2026-06-08T08:09:58.013677Z",
-          "extract_finished_at": "2026-06-08T08:09:59.006307Z",
-          "index_enqueued_at": "2026-06-08T08:09:59.561883Z",
-          "index_started_at": "2026-06-08T08:10:11.239976Z",
-          "index_finished_at": "2026-06-08T08:10:15.138869Z"
-        }
-      },
-      {
-        "id": "db415368-a778-471d-9124-19b37289e59e",
-        "filename": "load-valid-001.pdf",
-        "content_type": "application/pdf",
-        "file_size_bytes": 714,
-        "page_count": 1,
-        "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-        "status": "indexed",
-        "error_message": null,
-        "created_at": "2026-06-08T08:09:30.491797Z",
-        "updated_at": "2026-06-08T08:09:59.396961Z",
-        "timing": {
-          "upload_completed_at": "2026-06-08T08:09:46.485228Z",
-          "extract_enqueued_at": "2026-06-08T08:09:46.485228Z",
-          "extract_started_at": "2026-06-08T08:09:48.753480Z",
-          "extract_finished_at": "2026-06-08T08:09:49.999550Z",
-          "index_enqueued_at": "2026-06-08T08:09:50.564392Z",
-          "index_started_at": "2026-06-08T08:09:53.081145Z",
-          "index_finished_at": "2026-06-08T08:09:59.396961Z"
-        }
-      },
-      {
-        "id": "f71d14a2-2517-49e9-b0b0-8cc90d11c793",
-        "filename": "load-valid-002.pdf",
-        "content_type": "application/pdf",
-        "file_size_bytes": 714,
-        "page_count": 1,
-        "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-        "status": "indexed",
-        "error_message": null,
-        "created_at": "2026-06-08T08:09:30.491797Z",
-        "updated_at": "2026-06-08T08:09:59.714413Z",
-        "timing": {
-          "upload_completed_at": "2026-06-08T08:09:47.692083Z",
-          "extract_enqueued_at": "2026-06-08T08:09:47.692083Z",
-          "extract_started_at": "2026-06-08T08:09:50.183154Z",
-          "extract_finished_at": "2026-06-08T08:09:51.147375Z",
-          "index_enqueued_at": "2026-06-08T08:09:51.755669Z",
-          "index_started_at": "2026-06-08T08:09:54.242010Z",
-          "index_finished_at": "2026-06-08T08:09:59.714413Z"
-        }
-      },
-      {
-        "id": "5c049412-054f-42e1-9e13-023823e8aad2",
-        "filename": "load-valid-003.pdf",
-        "content_type": "application/pdf",
-        "file_size_bytes": 714,
-        "page_count": 1,
-        "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-        "status": "indexed",
-        "error_message": null,
-        "created_at": "2026-06-08T08:09:30.491797Z",
-        "updated_at": "2026-06-08T08:10:02.158083Z",
-        "timing": {
-          "upload_completed_at": "2026-06-08T08:09:48.931801Z",
-          "extract_enqueued_at": "2026-06-08T08:09:48.931801Z",
-          "extract_started_at": "2026-06-08T08:09:51.423905Z",
-          "extract_finished_at": "2026-06-08T08:09:52.743102Z",
-          "index_enqueued_at": "2026-06-08T08:09:53.324472Z",
-          "index_started_at": "2026-06-08T08:09:56.669129Z",
-          "index_finished_at": "2026-06-08T08:10:02.158083Z"
-        }
-      },
-      {
-        "id": "b9073464-28ec-476a-bac8-0971193d9f2f",
-        "filename": "load-valid-009.pdf",
-        "content_type": "application/pdf",
-        "file_size_bytes": 714,
-        "page_count": 1,
-        "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-        "status": "indexed",
-        "error_message": null,
-        "created_at": "2026-06-08T08:09:30.491797Z",
-        "updated_at": "2026-06-08T08:10:16.558621Z",
-        "timing": {
-          "upload_completed_at": "2026-06-08T08:09:56.108341Z",
-          "extract_enqueued_at": "2026-06-08T08:09:56.108341Z",
-          "extract_started_at": "2026-06-08T08:09:59.054110Z",
-          "extract_finished_at": "2026-06-08T08:10:00.153835Z",
-          "index_enqueued_at": "2026-06-08T08:10:00.722025Z",
-          "index_started_at": "2026-06-08T08:10:12.572818Z",
-          "index_finished_at": "2026-06-08T08:10:16.558621Z"
-        }
-      },
-      {
-        "id": "148116bf-a6c2-4935-a2fa-48ad7a0c31ee",
-        "filename": "load-valid-010.pdf",
-        "content_type": "application/pdf",
-        "file_size_bytes": 715,
-        "page_count": 1,
-        "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-        "status": "indexed",
-        "error_message": null,
-        "created_at": "2026-06-08T08:09:30.491797Z",
-        "updated_at": "2026-06-08T08:10:22.237615Z",
-        "timing": {
-          "upload_completed_at": "2026-06-08T08:09:57.430426Z",
-          "extract_enqueued_at": "2026-06-08T08:09:57.430426Z",
-          "extract_started_at": "2026-06-08T08:10:00.700838Z",
-          "extract_finished_at": "2026-06-08T08:10:01.996813Z",
-          "index_enqueued_at": "2026-06-08T08:10:02.578208Z",
-          "index_started_at": "2026-06-08T08:10:17.718603Z",
-          "index_finished_at": "2026-06-08T08:10:22.237615Z"
-        }
-      },
-      {
-        "id": "9232b00d-0b56-4eca-a273-e569546850c4",
-        "filename": "load-valid-004.pdf",
-        "content_type": "application/pdf",
-        "file_size_bytes": 714,
-        "page_count": 1,
-        "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-        "status": "indexed",
-        "error_message": null,
-        "created_at": "2026-06-08T08:09:30.491797Z",
-        "updated_at": "2026-06-08T08:10:07.515406Z",
-        "timing": {
-          "upload_completed_at": "2026-06-08T08:09:50.121905Z",
-          "extract_enqueued_at": "2026-06-08T08:09:50.121905Z",
-          "extract_started_at": "2026-06-08T08:09:52.669554Z",
-          "extract_finished_at": "2026-06-08T08:09:53.822766Z",
-          "index_enqueued_at": "2026-06-08T08:09:54.406964Z",
-          "index_started_at": "2026-06-08T08:10:03.105459Z",
-          "index_finished_at": "2026-06-08T08:10:07.515406Z"
-        }
-      },
-      {
-        "id": "dd32e7ab-cd98-4324-8787-5750afe6f34e",
-        "filename": "load-valid-005.pdf",
-        "content_type": "application/pdf",
-        "file_size_bytes": 714,
-        "page_count": 1,
-        "ingestion_run_id": "89b8da54-a770-42bf-a2da-c87f05be6b7b",
-        "status": "indexed",
-        "error_message": null,
-        "created_at": "2026-06-08T08:09:30.491797Z",
-        "updated_at": "2026-06-08T08:10:07.940086Z",
-        "timing": {
-          "upload_completed_at": "2026-06-08T08:09:51.290543Z",
-          "extract_enqueued_at": "2026-06-08T08:09:51.290543Z",
-          "extract_started_at": "2026-06-08T08:09:53.873697Z",
-          "extract_finished_at": "2026-06-08T08:09:55.047888Z",
-          "index_enqueued_at": "2026-06-08T08:09:55.650679Z",
-          "index_started_at": "2026-06-08T08:10:03.140619Z",
-          "index_finished_at": "2026-06-08T08:10:07.940086Z"
-        }
-      },
-      {
-        "id": "81ac5061-3791-4176-857d-96ce7fb97c92",
-        "filename": "terms-and-conditions-template.pdf",
-        "content_type": "application/pdf",
-        "file_size_bytes": 50399,
-        "page_count": 2,
-        "ingestion_run_id": "841b78f4-4233-4bf9-9cfe-e2945c32d0f4",
-        "status": "indexed",
-        "error_message": null,
-        "created_at": "2026-06-07T19:05:02.193118Z",
-        "updated_at": "2026-06-07T19:05:22.315615Z",
-        "timing": {
-          "upload_completed_at": "2026-06-07T19:05:06.456797Z",
-          "extract_enqueued_at": "2026-06-07T19:05:06.456797Z",
-          "extract_started_at": "2026-06-07T19:05:10.155645Z",
-          "extract_finished_at": "2026-06-07T19:05:11.932408Z",
-          "index_enqueued_at": "2026-06-07T19:05:12.620190Z",
-          "index_started_at": "2026-06-07T19:05:15.937121Z",
-          "index_finished_at": "2026-06-07T19:05:22.315615Z"
-        }
-      }
-    ],
-    "limit": 100,
-    "offset": 0,
-    "total": 11
-  },
-  "queue_snapshots": [
-    {
-      "elapsed_seconds": 32.573,
-      "queues": [
-        {
-          "name": "ingest_extract",
-          "queued_count": 0,
-          "started_count": 2,
-          "deferred_count": 0,
-          "scheduled_count": 0,
-          "failed_count": 29
-        },
-        {
-          "name": "ingest_index",
-          "queued_count": 3,
-          "started_count": 3,
-          "deferred_count": 0,
-          "scheduled_count": 0,
-          "failed_count": 7
-        }
-      ],
-      "run_status": "processing",
-      "document_statuses": {
-        "pending_upload": 0,
-        "uploading": 0,
-        "uploaded": 1,
-        "extracting": 1,
-        "indexing": 8,
-        "ready": 0,
-        "indexed": 0,
-        "failed": 0,
-        "total": 10
-      }
-    },
-    {
-      "elapsed_seconds": 40.179,
-      "queues": [
-        {
-          "name": "ingest_extract",
-          "queued_count": 0,
-          "started_count": 0,
-          "deferred_count": 0,
-          "scheduled_count": 0,
-          "failed_count": 29
-        },
-        {
-          "name": "ingest_index",
-          "queued_count": 3,
-          "started_count": 3,
-          "deferred_count": 0,
-          "scheduled_count": 0,
-          "failed_count": 7
-        }
-      ],
-      "run_status": "processing",
-      "document_statuses": {
-        "pending_upload": 0,
-        "uploading": 0,
-        "uploaded": 0,
-        "extracting": 0,
-        "indexing": 7,
-        "ready": 0,
-        "indexed": 3,
-        "failed": 0,
-        "total": 10
-      }
-    },
-    {
-      "elapsed_seconds": 47.647,
-      "queues": [
-        {
-          "name": "ingest_extract",
-          "queued_count": 0,
-          "started_count": 0,
-          "deferred_count": 0,
-          "scheduled_count": 0,
-          "failed_count": 29
-        },
-        {
-          "name": "ingest_index",
-          "queued_count": 0,
-          "started_count": 3,
-          "deferred_count": 0,
-          "scheduled_count": 0,
-          "failed_count": 7
-        }
-      ],
-      "run_status": "processing",
-      "document_statuses": {
-        "pending_upload": 0,
-        "uploading": 0,
-        "uploaded": 0,
-        "extracting": 0,
-        "indexing": 4,
-        "ready": 0,
-        "indexed": 6,
-        "failed": 0,
-        "total": 10
-      }
-    },
-    {
-      "elapsed_seconds": 55.148,
-      "queues": [
-        {
-          "name": "ingest_extract",
-          "queued_count": 0,
-          "started_count": 0,
-          "deferred_count": 0,
-          "scheduled_count": 0,
-          "failed_count": 29
-        },
-        {
-          "name": "ingest_index",
-          "queued_count": 0,
-          "started_count": 0,
-          "deferred_count": 0,
-          "scheduled_count": 0,
-          "failed_count": 7
-        }
-      ],
-      "run_status": "processing",
-      "document_statuses": {
-        "pending_upload": 0,
-        "uploading": 0,
-        "uploaded": 0,
-        "extracting": 0,
-        "indexing": 1,
-        "ready": 0,
-        "indexed": 9,
-        "failed": 0,
-        "total": 10
-      }
-    },
-    {
-      "elapsed_seconds": 62.683,
-      "queues": [
-        {
-          "name": "ingest_extract",
-          "queued_count": 0,
-          "started_count": 0,
-          "deferred_count": 0,
-          "scheduled_count": 0,
-          "failed_count": 29
-        },
-        {
-          "name": "ingest_index",
-          "queued_count": 0,
-          "started_count": 0,
-          "deferred_count": 0,
-          "scheduled_count": 0,
-          "failed_count": 7
-        }
-      ],
-      "run_status": "completed",
-      "document_statuses": {
-        "pending_upload": 0,
-        "uploading": 0,
-        "uploaded": 0,
-        "extracting": 0,
-        "indexing": 0,
-        "ready": 0,
-        "indexed": 10,
-        "failed": 0,
-        "total": 10
-      }
-    }
-  ],
-  "durations_seconds": {
-    "prepare_upload_complete": 30.026,
-    "total": 63.991
-  }
+﻿{
+    "generated_at":  "2026-06-08T08:09:28.032939+00:00",
+    "api_base":  "http://localhost:8000",
+    "scenario":  "valid",
+    "requested_count":  10,
+    "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+    "prepare":  {
+                    "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                    "bucket":  "documents",
+                    "expires_in":  600,
+                    "accepted_count":  10,
+                    "rejected_count":  0,
+                    "items":  [
+                                  {
+                                      "index":  0,
+                                      "filename":  "load-valid-001.pdf",
+                                      "client_file_id":  "load-valid-001",
+                                      "status":  "prepared",
+                                      "document_id":  "db415368-a778-471d-9124-19b37289e59e",
+                                      "bucket":  "documents",
+                                      "storage_path":  "aa110712-618b-4bba-8556-e256b8aa4df0/db415368-a778-471d-9124-19b37289e59e/load-valid-001.pdf",
+                                      "upload_url":  "[redacted]",
+                                      "expires_in":  600,
+                                      "error":  null
+                                  },
+                                  {
+                                      "index":  1,
+                                      "filename":  "load-valid-002.pdf",
+                                      "client_file_id":  "load-valid-002",
+                                      "status":  "prepared",
+                                      "document_id":  "f71d14a2-2517-49e9-b0b0-8cc90d11c793",
+                                      "bucket":  "documents",
+                                      "storage_path":  "aa110712-618b-4bba-8556-e256b8aa4df0/f71d14a2-2517-49e9-b0b0-8cc90d11c793/load-valid-002.pdf",
+                                      "upload_url":  "[redacted]",
+                                      "expires_in":  600,
+                                      "error":  null
+                                  },
+                                  {
+                                      "index":  2,
+                                      "filename":  "load-valid-003.pdf",
+                                      "client_file_id":  "load-valid-003",
+                                      "status":  "prepared",
+                                      "document_id":  "5c049412-054f-42e1-9e13-023823e8aad2",
+                                      "bucket":  "documents",
+                                      "storage_path":  "aa110712-618b-4bba-8556-e256b8aa4df0/5c049412-054f-42e1-9e13-023823e8aad2/load-valid-003.pdf",
+                                      "upload_url":  "[redacted]",
+                                      "expires_in":  600,
+                                      "error":  null
+                                  },
+                                  {
+                                      "index":  3,
+                                      "filename":  "load-valid-004.pdf",
+                                      "client_file_id":  "load-valid-004",
+                                      "status":  "prepared",
+                                      "document_id":  "9232b00d-0b56-4eca-a273-e569546850c4",
+                                      "bucket":  "documents",
+                                      "storage_path":  "aa110712-618b-4bba-8556-e256b8aa4df0/9232b00d-0b56-4eca-a273-e569546850c4/load-valid-004.pdf",
+                                      "upload_url":  "[redacted]",
+                                      "expires_in":  600,
+                                      "error":  null
+                                  },
+                                  {
+                                      "index":  4,
+                                      "filename":  "load-valid-005.pdf",
+                                      "client_file_id":  "load-valid-005",
+                                      "status":  "prepared",
+                                      "document_id":  "dd32e7ab-cd98-4324-8787-5750afe6f34e",
+                                      "bucket":  "documents",
+                                      "storage_path":  "aa110712-618b-4bba-8556-e256b8aa4df0/dd32e7ab-cd98-4324-8787-5750afe6f34e/load-valid-005.pdf",
+                                      "upload_url":  "[redacted]",
+                                      "expires_in":  600,
+                                      "error":  null
+                                  },
+                                  {
+                                      "index":  5,
+                                      "filename":  "load-valid-006.pdf",
+                                      "client_file_id":  "load-valid-006",
+                                      "status":  "prepared",
+                                      "document_id":  "f5e94ccb-2c27-4772-8c19-652dad8bbb73",
+                                      "bucket":  "documents",
+                                      "storage_path":  "aa110712-618b-4bba-8556-e256b8aa4df0/f5e94ccb-2c27-4772-8c19-652dad8bbb73/load-valid-006.pdf",
+                                      "upload_url":  "[redacted]",
+                                      "expires_in":  600,
+                                      "error":  null
+                                  },
+                                  {
+                                      "index":  6,
+                                      "filename":  "load-valid-007.pdf",
+                                      "client_file_id":  "load-valid-007",
+                                      "status":  "prepared",
+                                      "document_id":  "d91d171e-bb4e-42b3-8d5c-3a7135fd8134",
+                                      "bucket":  "documents",
+                                      "storage_path":  "aa110712-618b-4bba-8556-e256b8aa4df0/d91d171e-bb4e-42b3-8d5c-3a7135fd8134/load-valid-007.pdf",
+                                      "upload_url":  "[redacted]",
+                                      "expires_in":  600,
+                                      "error":  null
+                                  },
+                                  {
+                                      "index":  7,
+                                      "filename":  "load-valid-008.pdf",
+                                      "client_file_id":  "load-valid-008",
+                                      "status":  "prepared",
+                                      "document_id":  "2a79108e-dc8e-41f6-b08f-9932d2836602",
+                                      "bucket":  "documents",
+                                      "storage_path":  "aa110712-618b-4bba-8556-e256b8aa4df0/2a79108e-dc8e-41f6-b08f-9932d2836602/load-valid-008.pdf",
+                                      "upload_url":  "[redacted]",
+                                      "expires_in":  600,
+                                      "error":  null
+                                  },
+                                  {
+                                      "index":  8,
+                                      "filename":  "load-valid-009.pdf",
+                                      "client_file_id":  "load-valid-009",
+                                      "status":  "prepared",
+                                      "document_id":  "b9073464-28ec-476a-bac8-0971193d9f2f",
+                                      "bucket":  "documents",
+                                      "storage_path":  "aa110712-618b-4bba-8556-e256b8aa4df0/b9073464-28ec-476a-bac8-0971193d9f2f/load-valid-009.pdf",
+                                      "upload_url":  "[redacted]",
+                                      "expires_in":  600,
+                                      "error":  null
+                                  },
+                                  {
+                                      "index":  9,
+                                      "filename":  "load-valid-010.pdf",
+                                      "client_file_id":  "load-valid-010",
+                                      "status":  "prepared",
+                                      "document_id":  "148116bf-a6c2-4935-a2fa-48ad7a0c31ee",
+                                      "bucket":  "documents",
+                                      "storage_path":  "aa110712-618b-4bba-8556-e256b8aa4df0/148116bf-a6c2-4935-a2fa-48ad7a0c31ee/load-valid-010.pdf",
+                                      "upload_url":  "[redacted]",
+                                      "expires_in":  600,
+                                      "error":  null
+                                  }
+                              ]
+                },
+    "complete":  {
+                     "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                     "accepted_count":  10,
+                     "failed_count":  0,
+                     "items":  [
+                                   {
+                                       "index":  0,
+                                       "document_id":  "db415368-a778-471d-9124-19b37289e59e",
+                                       "status":  "uploaded",
+                                       "job_id":  "1ad608cb-fbb5-4880-aff9-fd4aa6e172a1",
+                                       "error":  null
+                                   },
+                                   {
+                                       "index":  1,
+                                       "document_id":  "f71d14a2-2517-49e9-b0b0-8cc90d11c793",
+                                       "status":  "uploaded",
+                                       "job_id":  "71dd15ca-f398-4581-b4ef-7715e437325e",
+                                       "error":  null
+                                   },
+                                   {
+                                       "index":  2,
+                                       "document_id":  "5c049412-054f-42e1-9e13-023823e8aad2",
+                                       "status":  "uploaded",
+                                       "job_id":  "ec7732a5-631c-4053-a548-f6a4a7293ebc",
+                                       "error":  null
+                                   },
+                                   {
+                                       "index":  3,
+                                       "document_id":  "9232b00d-0b56-4eca-a273-e569546850c4",
+                                       "status":  "uploaded",
+                                       "job_id":  "fdefd8b1-aed4-45b6-9622-820a8c275cbc",
+                                       "error":  null
+                                   },
+                                   {
+                                       "index":  4,
+                                       "document_id":  "dd32e7ab-cd98-4324-8787-5750afe6f34e",
+                                       "status":  "uploaded",
+                                       "job_id":  "f6d690c6-8a2a-4b73-977a-ab236550082b",
+                                       "error":  null
+                                   },
+                                   {
+                                       "index":  5,
+                                       "document_id":  "f5e94ccb-2c27-4772-8c19-652dad8bbb73",
+                                       "status":  "uploaded",
+                                       "job_id":  "23f87c3e-a3d2-412f-9254-e9b5b2234007",
+                                       "error":  null
+                                   },
+                                   {
+                                       "index":  6,
+                                       "document_id":  "d91d171e-bb4e-42b3-8d5c-3a7135fd8134",
+                                       "status":  "uploaded",
+                                       "job_id":  "09fcb24a-36cd-4693-b529-e41a814ad390",
+                                       "error":  null
+                                   },
+                                   {
+                                       "index":  7,
+                                       "document_id":  "2a79108e-dc8e-41f6-b08f-9932d2836602",
+                                       "status":  "uploaded",
+                                       "job_id":  "ea351d34-4de4-4c36-ace3-fa018115f6e9",
+                                       "error":  null
+                                   },
+                                   {
+                                       "index":  8,
+                                       "document_id":  "b9073464-28ec-476a-bac8-0971193d9f2f",
+                                       "status":  "uploaded",
+                                       "job_id":  "ecc1b7f6-ba30-41f1-9d14-7c6200f2d8c7",
+                                       "error":  null
+                                   },
+                                   {
+                                       "index":  9,
+                                       "document_id":  "148116bf-a6c2-4935-a2fa-48ad7a0c31ee",
+                                       "status":  "uploaded",
+                                       "job_id":  "3134b26c-1334-4bce-bf67-ef2eb93a4469",
+                                       "error":  null
+                                   }
+                               ]
+                 },
+    "final_run":  {
+                      "id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                      "name":  "load-valid-10-2026-06-08T08:09:28.032939+00:00",
+                      "status":  "completed",
+                      "total_documents":  10,
+                      "accepted_documents":  10,
+                      "rejected_documents":  0,
+                      "document_statuses":  {
+                                                "pending_upload":  0,
+                                                "uploading":  0,
+                                                "uploaded":  0,
+                                                "extracting":  0,
+                                                "indexing":  0,
+                                                "ready":  0,
+                                                "indexed":  10,
+                                                "failed":  0,
+                                                "total":  10
+                                            },
+                      "created_at":  "2026-06-08T08:09:37.392806Z",
+                      "updated_at":  "2026-06-08T08:10:29.829994Z"
+                  },
+    "documents":  {
+                      "items":  [
+                                    {
+                                        "id":  "f5e94ccb-2c27-4772-8c19-652dad8bbb73",
+                                        "filename":  "load-valid-006.pdf",
+                                        "content_type":  "application/pdf",
+                                        "file_size_bytes":  714,
+                                        "page_count":  1,
+                                        "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                                        "status":  "indexed",
+                                        "error_message":  null,
+                                        "created_at":  "2026-06-08T08:09:30.491797Z",
+                                        "updated_at":  "2026-06-08T08:10:09.552363Z",
+                                        "timing":  {
+                                                       "upload_completed_at":  "2026-06-08T08:09:52.473267Z",
+                                                       "extract_enqueued_at":  "2026-06-08T08:09:52.473267Z",
+                                                       "extract_started_at":  "2026-06-08T08:09:55.219272Z",
+                                                       "extract_finished_at":  "2026-06-08T08:09:56.375791Z",
+                                                       "index_enqueued_at":  "2026-06-08T08:09:56.959675Z",
+                                                       "index_started_at":  "2026-06-08T08:10:05.404586Z",
+                                                       "index_finished_at":  "2026-06-08T08:10:09.552363Z"
+                                                   }
+                                    },
+                                    {
+                                        "id":  "d91d171e-bb4e-42b3-8d5c-3a7135fd8134",
+                                        "filename":  "load-valid-007.pdf",
+                                        "content_type":  "application/pdf",
+                                        "file_size_bytes":  714,
+                                        "page_count":  1,
+                                        "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                                        "status":  "indexed",
+                                        "error_message":  null,
+                                        "created_at":  "2026-06-08T08:09:30.491797Z",
+                                        "updated_at":  "2026-06-08T08:10:14.689817Z",
+                                        "timing":  {
+                                                       "upload_completed_at":  "2026-06-08T08:09:53.646986Z",
+                                                       "extract_enqueued_at":  "2026-06-08T08:09:53.646986Z",
+                                                       "extract_started_at":  "2026-06-08T08:09:57.032920Z",
+                                                       "extract_finished_at":  "2026-06-08T08:09:58.187896Z",
+                                                       "index_enqueued_at":  "2026-06-08T08:09:58.770841Z",
+                                                       "index_started_at":  "2026-06-08T08:10:10.883507Z",
+                                                       "index_finished_at":  "2026-06-08T08:10:14.689817Z"
+                                                   }
+                                    },
+                                    {
+                                        "id":  "2a79108e-dc8e-41f6-b08f-9932d2836602",
+                                        "filename":  "load-valid-008.pdf",
+                                        "content_type":  "application/pdf",
+                                        "file_size_bytes":  714,
+                                        "page_count":  1,
+                                        "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                                        "status":  "indexed",
+                                        "error_message":  null,
+                                        "created_at":  "2026-06-08T08:09:30.491797Z",
+                                        "updated_at":  "2026-06-08T08:10:15.138869Z",
+                                        "timing":  {
+                                                       "upload_completed_at":  "2026-06-08T08:09:54.860222Z",
+                                                       "extract_enqueued_at":  "2026-06-08T08:09:54.860222Z",
+                                                       "extract_started_at":  "2026-06-08T08:09:58.013677Z",
+                                                       "extract_finished_at":  "2026-06-08T08:09:59.006307Z",
+                                                       "index_enqueued_at":  "2026-06-08T08:09:59.561883Z",
+                                                       "index_started_at":  "2026-06-08T08:10:11.239976Z",
+                                                       "index_finished_at":  "2026-06-08T08:10:15.138869Z"
+                                                   }
+                                    },
+                                    {
+                                        "id":  "db415368-a778-471d-9124-19b37289e59e",
+                                        "filename":  "load-valid-001.pdf",
+                                        "content_type":  "application/pdf",
+                                        "file_size_bytes":  714,
+                                        "page_count":  1,
+                                        "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                                        "status":  "indexed",
+                                        "error_message":  null,
+                                        "created_at":  "2026-06-08T08:09:30.491797Z",
+                                        "updated_at":  "2026-06-08T08:09:59.396961Z",
+                                        "timing":  {
+                                                       "upload_completed_at":  "2026-06-08T08:09:46.485228Z",
+                                                       "extract_enqueued_at":  "2026-06-08T08:09:46.485228Z",
+                                                       "extract_started_at":  "2026-06-08T08:09:48.753480Z",
+                                                       "extract_finished_at":  "2026-06-08T08:09:49.999550Z",
+                                                       "index_enqueued_at":  "2026-06-08T08:09:50.564392Z",
+                                                       "index_started_at":  "2026-06-08T08:09:53.081145Z",
+                                                       "index_finished_at":  "2026-06-08T08:09:59.396961Z"
+                                                   }
+                                    },
+                                    {
+                                        "id":  "f71d14a2-2517-49e9-b0b0-8cc90d11c793",
+                                        "filename":  "load-valid-002.pdf",
+                                        "content_type":  "application/pdf",
+                                        "file_size_bytes":  714,
+                                        "page_count":  1,
+                                        "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                                        "status":  "indexed",
+                                        "error_message":  null,
+                                        "created_at":  "2026-06-08T08:09:30.491797Z",
+                                        "updated_at":  "2026-06-08T08:09:59.714413Z",
+                                        "timing":  {
+                                                       "upload_completed_at":  "2026-06-08T08:09:47.692083Z",
+                                                       "extract_enqueued_at":  "2026-06-08T08:09:47.692083Z",
+                                                       "extract_started_at":  "2026-06-08T08:09:50.183154Z",
+                                                       "extract_finished_at":  "2026-06-08T08:09:51.147375Z",
+                                                       "index_enqueued_at":  "2026-06-08T08:09:51.755669Z",
+                                                       "index_started_at":  "2026-06-08T08:09:54.242010Z",
+                                                       "index_finished_at":  "2026-06-08T08:09:59.714413Z"
+                                                   }
+                                    },
+                                    {
+                                        "id":  "5c049412-054f-42e1-9e13-023823e8aad2",
+                                        "filename":  "load-valid-003.pdf",
+                                        "content_type":  "application/pdf",
+                                        "file_size_bytes":  714,
+                                        "page_count":  1,
+                                        "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                                        "status":  "indexed",
+                                        "error_message":  null,
+                                        "created_at":  "2026-06-08T08:09:30.491797Z",
+                                        "updated_at":  "2026-06-08T08:10:02.158083Z",
+                                        "timing":  {
+                                                       "upload_completed_at":  "2026-06-08T08:09:48.931801Z",
+                                                       "extract_enqueued_at":  "2026-06-08T08:09:48.931801Z",
+                                                       "extract_started_at":  "2026-06-08T08:09:51.423905Z",
+                                                       "extract_finished_at":  "2026-06-08T08:09:52.743102Z",
+                                                       "index_enqueued_at":  "2026-06-08T08:09:53.324472Z",
+                                                       "index_started_at":  "2026-06-08T08:09:56.669129Z",
+                                                       "index_finished_at":  "2026-06-08T08:10:02.158083Z"
+                                                   }
+                                    },
+                                    {
+                                        "id":  "b9073464-28ec-476a-bac8-0971193d9f2f",
+                                        "filename":  "load-valid-009.pdf",
+                                        "content_type":  "application/pdf",
+                                        "file_size_bytes":  714,
+                                        "page_count":  1,
+                                        "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                                        "status":  "indexed",
+                                        "error_message":  null,
+                                        "created_at":  "2026-06-08T08:09:30.491797Z",
+                                        "updated_at":  "2026-06-08T08:10:16.558621Z",
+                                        "timing":  {
+                                                       "upload_completed_at":  "2026-06-08T08:09:56.108341Z",
+                                                       "extract_enqueued_at":  "2026-06-08T08:09:56.108341Z",
+                                                       "extract_started_at":  "2026-06-08T08:09:59.054110Z",
+                                                       "extract_finished_at":  "2026-06-08T08:10:00.153835Z",
+                                                       "index_enqueued_at":  "2026-06-08T08:10:00.722025Z",
+                                                       "index_started_at":  "2026-06-08T08:10:12.572818Z",
+                                                       "index_finished_at":  "2026-06-08T08:10:16.558621Z"
+                                                   }
+                                    },
+                                    {
+                                        "id":  "148116bf-a6c2-4935-a2fa-48ad7a0c31ee",
+                                        "filename":  "load-valid-010.pdf",
+                                        "content_type":  "application/pdf",
+                                        "file_size_bytes":  715,
+                                        "page_count":  1,
+                                        "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                                        "status":  "indexed",
+                                        "error_message":  null,
+                                        "created_at":  "2026-06-08T08:09:30.491797Z",
+                                        "updated_at":  "2026-06-08T08:10:22.237615Z",
+                                        "timing":  {
+                                                       "upload_completed_at":  "2026-06-08T08:09:57.430426Z",
+                                                       "extract_enqueued_at":  "2026-06-08T08:09:57.430426Z",
+                                                       "extract_started_at":  "2026-06-08T08:10:00.700838Z",
+                                                       "extract_finished_at":  "2026-06-08T08:10:01.996813Z",
+                                                       "index_enqueued_at":  "2026-06-08T08:10:02.578208Z",
+                                                       "index_started_at":  "2026-06-08T08:10:17.718603Z",
+                                                       "index_finished_at":  "2026-06-08T08:10:22.237615Z"
+                                                   }
+                                    },
+                                    {
+                                        "id":  "9232b00d-0b56-4eca-a273-e569546850c4",
+                                        "filename":  "load-valid-004.pdf",
+                                        "content_type":  "application/pdf",
+                                        "file_size_bytes":  714,
+                                        "page_count":  1,
+                                        "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                                        "status":  "indexed",
+                                        "error_message":  null,
+                                        "created_at":  "2026-06-08T08:09:30.491797Z",
+                                        "updated_at":  "2026-06-08T08:10:07.515406Z",
+                                        "timing":  {
+                                                       "upload_completed_at":  "2026-06-08T08:09:50.121905Z",
+                                                       "extract_enqueued_at":  "2026-06-08T08:09:50.121905Z",
+                                                       "extract_started_at":  "2026-06-08T08:09:52.669554Z",
+                                                       "extract_finished_at":  "2026-06-08T08:09:53.822766Z",
+                                                       "index_enqueued_at":  "2026-06-08T08:09:54.406964Z",
+                                                       "index_started_at":  "2026-06-08T08:10:03.105459Z",
+                                                       "index_finished_at":  "2026-06-08T08:10:07.515406Z"
+                                                   }
+                                    },
+                                    {
+                                        "id":  "dd32e7ab-cd98-4324-8787-5750afe6f34e",
+                                        "filename":  "load-valid-005.pdf",
+                                        "content_type":  "application/pdf",
+                                        "file_size_bytes":  714,
+                                        "page_count":  1,
+                                        "ingestion_run_id":  "89b8da54-a770-42bf-a2da-c87f05be6b7b",
+                                        "status":  "indexed",
+                                        "error_message":  null,
+                                        "created_at":  "2026-06-08T08:09:30.491797Z",
+                                        "updated_at":  "2026-06-08T08:10:07.940086Z",
+                                        "timing":  {
+                                                       "upload_completed_at":  "2026-06-08T08:09:51.290543Z",
+                                                       "extract_enqueued_at":  "2026-06-08T08:09:51.290543Z",
+                                                       "extract_started_at":  "2026-06-08T08:09:53.873697Z",
+                                                       "extract_finished_at":  "2026-06-08T08:09:55.047888Z",
+                                                       "index_enqueued_at":  "2026-06-08T08:09:55.650679Z",
+                                                       "index_started_at":  "2026-06-08T08:10:03.140619Z",
+                                                       "index_finished_at":  "2026-06-08T08:10:07.940086Z"
+                                                   }
+                                    },
+                                    {
+                                        "id":  "81ac5061-3791-4176-857d-96ce7fb97c92",
+                                        "filename":  "terms-and-conditions-template.pdf",
+                                        "content_type":  "application/pdf",
+                                        "file_size_bytes":  50399,
+                                        "page_count":  2,
+                                        "ingestion_run_id":  "841b78f4-4233-4bf9-9cfe-e2945c32d0f4",
+                                        "status":  "indexed",
+                                        "error_message":  null,
+                                        "created_at":  "2026-06-07T19:05:02.193118Z",
+                                        "updated_at":  "2026-06-07T19:05:22.315615Z",
+                                        "timing":  {
+                                                       "upload_completed_at":  "2026-06-07T19:05:06.456797Z",
+                                                       "extract_enqueued_at":  "2026-06-07T19:05:06.456797Z",
+                                                       "extract_started_at":  "2026-06-07T19:05:10.155645Z",
+                                                       "extract_finished_at":  "2026-06-07T19:05:11.932408Z",
+                                                       "index_enqueued_at":  "2026-06-07T19:05:12.620190Z",
+                                                       "index_started_at":  "2026-06-07T19:05:15.937121Z",
+                                                       "index_finished_at":  "2026-06-07T19:05:22.315615Z"
+                                                   }
+                                    }
+                                ],
+                      "limit":  100,
+                      "offset":  0,
+                      "total":  11
+                  },
+    "queue_snapshots":  [
+                            {
+                                "elapsed_seconds":  32.573,
+                                "queues":  [
+                                               {
+                                                   "name":  "ingest_extract",
+                                                   "queued_count":  0,
+                                                   "started_count":  2,
+                                                   "deferred_count":  0,
+                                                   "scheduled_count":  0,
+                                                   "failed_count":  29
+                                               },
+                                               {
+                                                   "name":  "ingest_index",
+                                                   "queued_count":  3,
+                                                   "started_count":  3,
+                                                   "deferred_count":  0,
+                                                   "scheduled_count":  0,
+                                                   "failed_count":  7
+                                               }
+                                           ],
+                                "run_status":  "processing",
+                                "document_statuses":  {
+                                                          "pending_upload":  0,
+                                                          "uploading":  0,
+                                                          "uploaded":  1,
+                                                          "extracting":  1,
+                                                          "indexing":  8,
+                                                          "ready":  0,
+                                                          "indexed":  0,
+                                                          "failed":  0,
+                                                          "total":  10
+                                                      }
+                            },
+                            {
+                                "elapsed_seconds":  40.179,
+                                "queues":  [
+                                               {
+                                                   "name":  "ingest_extract",
+                                                   "queued_count":  0,
+                                                   "started_count":  0,
+                                                   "deferred_count":  0,
+                                                   "scheduled_count":  0,
+                                                   "failed_count":  29
+                                               },
+                                               {
+                                                   "name":  "ingest_index",
+                                                   "queued_count":  3,
+                                                   "started_count":  3,
+                                                   "deferred_count":  0,
+                                                   "scheduled_count":  0,
+                                                   "failed_count":  7
+                                               }
+                                           ],
+                                "run_status":  "processing",
+                                "document_statuses":  {
+                                                          "pending_upload":  0,
+                                                          "uploading":  0,
+                                                          "uploaded":  0,
+                                                          "extracting":  0,
+                                                          "indexing":  7,
+                                                          "ready":  0,
+                                                          "indexed":  3,
+                                                          "failed":  0,
+                                                          "total":  10
+                                                      }
+                            },
+                            {
+                                "elapsed_seconds":  47.647,
+                                "queues":  [
+                                               {
+                                                   "name":  "ingest_extract",
+                                                   "queued_count":  0,
+                                                   "started_count":  0,
+                                                   "deferred_count":  0,
+                                                   "scheduled_count":  0,
+                                                   "failed_count":  29
+                                               },
+                                               {
+                                                   "name":  "ingest_index",
+                                                   "queued_count":  0,
+                                                   "started_count":  3,
+                                                   "deferred_count":  0,
+                                                   "scheduled_count":  0,
+                                                   "failed_count":  7
+                                               }
+                                           ],
+                                "run_status":  "processing",
+                                "document_statuses":  {
+                                                          "pending_upload":  0,
+                                                          "uploading":  0,
+                                                          "uploaded":  0,
+                                                          "extracting":  0,
+                                                          "indexing":  4,
+                                                          "ready":  0,
+                                                          "indexed":  6,
+                                                          "failed":  0,
+                                                          "total":  10
+                                                      }
+                            },
+                            {
+                                "elapsed_seconds":  55.148,
+                                "queues":  [
+                                               {
+                                                   "name":  "ingest_extract",
+                                                   "queued_count":  0,
+                                                   "started_count":  0,
+                                                   "deferred_count":  0,
+                                                   "scheduled_count":  0,
+                                                   "failed_count":  29
+                                               },
+                                               {
+                                                   "name":  "ingest_index",
+                                                   "queued_count":  0,
+                                                   "started_count":  0,
+                                                   "deferred_count":  0,
+                                                   "scheduled_count":  0,
+                                                   "failed_count":  7
+                                               }
+                                           ],
+                                "run_status":  "processing",
+                                "document_statuses":  {
+                                                          "pending_upload":  0,
+                                                          "uploading":  0,
+                                                          "uploaded":  0,
+                                                          "extracting":  0,
+                                                          "indexing":  1,
+                                                          "ready":  0,
+                                                          "indexed":  9,
+                                                          "failed":  0,
+                                                          "total":  10
+                                                      }
+                            },
+                            {
+                                "elapsed_seconds":  62.683,
+                                "queues":  [
+                                               {
+                                                   "name":  "ingest_extract",
+                                                   "queued_count":  0,
+                                                   "started_count":  0,
+                                                   "deferred_count":  0,
+                                                   "scheduled_count":  0,
+                                                   "failed_count":  29
+                                               },
+                                               {
+                                                   "name":  "ingest_index",
+                                                   "queued_count":  0,
+                                                   "started_count":  0,
+                                                   "deferred_count":  0,
+                                                   "scheduled_count":  0,
+                                                   "failed_count":  7
+                                               }
+                                           ],
+                                "run_status":  "completed",
+                                "document_statuses":  {
+                                                          "pending_upload":  0,
+                                                          "uploading":  0,
+                                                          "uploaded":  0,
+                                                          "extracting":  0,
+                                                          "indexing":  0,
+                                                          "ready":  0,
+                                                          "indexed":  10,
+                                                          "failed":  0,
+                                                          "total":  10
+                                                      }
+                            }
+                        ],
+    "durations_seconds":  {
+                              "prepare_upload_complete":  30.026,
+                              "total":  63.991
+                          }
 }
