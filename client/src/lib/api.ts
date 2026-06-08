@@ -173,6 +173,7 @@ export type QueryResponse = {
 export type QueryStreamMeta = {
   request_id: string;
   document_id: string;
+  document_ids?: string[];
   top_k: number;
 };
 
@@ -637,7 +638,7 @@ export async function apiUploadDocument(token: string, file: File): Promise<Uplo
 
 export async function apiQueryDocument(
   token: string,
-  payload: { document_id: string; question: string },
+  payload: { document_id?: string; document_ids?: string[]; question: string },
 ): Promise<QueryResponse> {
   const response = await apiRequest<Record<string, unknown>>("/query", token, {
     method: "POST",
@@ -733,7 +734,7 @@ function normalizeCitations(value: unknown): QueryCitation[] {
 
 export async function apiQueryStream(
   token: string,
-  payload: { document_id: string; question: string },
+  payload: { document_id?: string; document_ids?: string[]; question: string },
   handlers: QueryStreamEventHandlers,
   abortSignal?: AbortSignal,
 ): Promise<void> {
@@ -791,6 +792,9 @@ export async function apiQueryStream(
         handlers.onMeta?.({
           request_id: String(payloadData.request_id ?? ""),
           document_id: String(payloadData.document_id ?? ""),
+          document_ids: Array.isArray(payloadData.document_ids)
+            ? payloadData.document_ids.map((item) => String(item))
+            : undefined,
           top_k: Number(payloadData.top_k ?? 0),
         });
       } else if (parsed.event === "delta" && payloadData) {

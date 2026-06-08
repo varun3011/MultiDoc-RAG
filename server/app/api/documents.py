@@ -21,12 +21,17 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_workspace_id
 from app.config import settings
+from app.core.ingestion_reconciliation import (
+    configured_stale_thresholds,
+    reconcile_stale_ingestion,
+)
 from app.core.ingestion_runs import (
-    derive_ingestion_run_status,
-    empty_document_status_counts,
+    document_status_counts_for_run as core_document_status_counts_for_run,
+    refresh_ingestion_run_status as core_refresh_ingestion_run_status,
 )
 from app.core.ingestion_policy import (
     IngestionFailureCategory,
+    failure_category_from_message,
     format_bytes,
     ingestion_failure_message,
     is_retryable_failure,
@@ -41,10 +46,16 @@ from app.schemas.documents import (
     DocumentListItem,
     DocumentListResponse,
     DocumentProgress,
+    IngestionHealthFailureSummary,
+    IngestionHealthResponse,
+    IngestionReconciliationResponse,
+    IngestionTiming,
     IngestionQueueStatusItem,
     IngestionQueueStatusResponse,
     IngestionRunResponse,
     IngestionRunStatusCounts,
+    ReconciledDocumentItem,
+    ReconciledIngestionRunItem,
     UploadCompleteBatchItem,
     UploadCompleteBatchRequest,
     UploadCompleteBatchResponse,
@@ -77,6 +88,28 @@ ALLOWED_STATUS_FILTERS = {
     "indexed",
     "ready",
     "failed",
+}
+ACTIVE_INGESTION_STATUSES = ("uploaded", "extracting", "indexing")
+INGESTION_TIMING_COLUMNS = (
+    "upload_completed_at",
+    "extract_enqueued_at",
+    "extract_started_at",
+    "extract_finished_at",
+    "index_enqueued_at",
+    "index_started_at",
+    "index_finished_at",
+)
+EXPECTED_REJECTION_CATEGORIES = {
+    IngestionFailureCategory.VALIDATION,
+    IngestionFailureCategory.PAGE_LIMIT,
+    IngestionFailureCategory.UNSUPPORTED_CONTENT,
+}
+INFRASTRUCTURE_FAILURE_CATEGORIES = {
+    IngestionFailureCategory.UPLOAD_STORAGE,
+    IngestionFailureCategory.EXTRACTION,
+    IngestionFailureCategory.INDEXING,
+    IngestionFailureCategory.BUDGET,
+    IngestionFailureCategory.TRANSIENT_INFRASTRUCTURE,
 }
 
 
@@ -136,6 +169,64 @@ def _sanitize_filename(filename: str) -> str:
 def _document_columns(db: Session) -> set[str]:
     bind = db.get_bind()
     return {col["name"] for col in inspect(bind).get_columns("documents")}
+
+
+def _timing_select_fields(columns: set[str]) -> list[str]:
+    return [
+        column_name if column_name in columns else f"NULL AS {column_name}"
+        for column_name in INGESTION_TIMING_COLUMNS
+    ]
+
+
+def _timing_from_row(row) -> IngestionTiming:
+    return IngestionTiming(
+        **{column_name: row[column_name] for column_name in INGESTION_TIMING_COLUMNS}
+    )
+
+
+def _set_optional_timestamp_updates(
+    *,
+    update_fields: list[str],
+    columns: set[str],
+    set_now: tuple[str, ...] = (),
+    clear: tuple[str, ...] = (),
+) -> None:
+    for column_name in set_now:
+        if column_name in columns:
+            update_fields.append(f"{column_name} = :updated_at")
+    for column_name in clear:
+        if column_name in columns:
+            update_fields.append(f"{column_name} = NULL")
+
+
+def _age_seconds(now: datetime, timestamp_value: datetime | None) -> int | None:
+    if timestamp_value is None:
+        return None
+    if timestamp_value.tzinfo is None:
+        timestamp_value = timestamp_value.replace(tzinfo=UTC)
+    return max(0, int((now - timestamp_value.astimezone(UTC)).total_seconds()))
+
+
+def _failure_summary(error_messages: list[str | None]) -> IngestionHealthFailureSummary:
+    expected_rejections = 0
+    infrastructure_failures = 0
+    unknown_failures = 0
+
+    for error_message in error_messages:
+        category = failure_category_from_message(error_message)
+        if category in EXPECTED_REJECTION_CATEGORIES:
+            expected_rejections += 1
+        elif category in INFRASTRUCTURE_FAILURE_CATEGORIES:
+            infrastructure_failures += 1
+        else:
+            unknown_failures += 1
+
+    return IngestionHealthFailureSummary(
+        total_failed=len(error_messages),
+        expected_rejections=expected_rejections,
+        infrastructure_failures=infrastructure_failures,
+        unknown_failures=unknown_failures,
+    )
 
 
 def _table_exists(db: Session, table_name: str) -> bool:
@@ -279,81 +370,44 @@ def _create_ingestion_run(
 def _document_status_counts_for_run(
     *, db: Session, workspace_id: uuid.UUID, run_id: uuid.UUID
 ) -> dict[str, int]:
-    counts = empty_document_status_counts()
-    rows = (
-        db.execute(
-            text(
-                """
-                SELECT status, COUNT(*) AS count
-                FROM documents
-                WHERE workspace_id = :workspace_id
-                  AND ingestion_run_id = :run_id
-                GROUP BY status
-                """
-            ),
-            {"workspace_id": workspace_id, "run_id": run_id},
-        )
-        .mappings()
-        .all()
-    )
-    for row in rows:
-        status_name = str(row["status"])
-        counts[status_name] = int(row["count"] or 0)
-    counts["total"] = sum(counts.values())
-    return counts
+    return core_document_status_counts_for_run(db=db, workspace_id=workspace_id, run_id=run_id)
 
 
 def _refresh_ingestion_run_status(
     *, db: Session, workspace_id: uuid.UUID, run_id: uuid.UUID
 ) -> str:
-    run_row = (
-        db.execute(
-            text(
-                """
-                SELECT accepted_documents, rejected_documents
-                FROM ingestion_runs
-                WHERE id = :run_id
-                  AND workspace_id = :workspace_id
-                LIMIT 1
-                """
-            ),
-            {"workspace_id": workspace_id, "run_id": run_id},
-        )
-        .mappings()
-        .first()
-    )
-    if run_row is None:
+    run_status = core_refresh_ingestion_run_status(db=db, workspace_id=workspace_id, run_id=run_id)
+    if run_status is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingestion run not found")
-
-    status_counts = _document_status_counts_for_run(db=db, workspace_id=workspace_id, run_id=run_id)
-    run_status = derive_ingestion_run_status(
-        status_counts=status_counts,
-        accepted_documents=int(run_row["accepted_documents"] or 0),
-        rejected_documents=int(run_row["rejected_documents"] or 0),
-    )
-    db.execute(
-        text(
-            """
-            UPDATE ingestion_runs
-            SET status = :status,
-                updated_at = :updated_at
-            WHERE id = :run_id
-              AND workspace_id = :workspace_id
-            """
-        ),
-        {
-            "status": run_status,
-            "updated_at": datetime.now(UTC),
-            "workspace_id": workspace_id,
-            "run_id": run_id,
-        },
-    )
     return run_status
 
 
 def _registry_count(registry) -> int:
     count_value = registry.count
     return int(count_value() if callable(count_value) else count_value)
+
+
+def _queue_status_items(redis_conn: Redis) -> list[IngestionQueueStatusItem]:
+    queue_items: list[IngestionQueueStatusItem] = []
+    for queue_name in ("ingest_extract", "ingest_index"):
+        queue = Queue(queue_name, connection=redis_conn)
+        queue_items.append(
+            IngestionQueueStatusItem(
+                name=queue_name,
+                queued_count=len(queue),
+                started_count=_registry_count(
+                    StartedJobRegistry(queue_name, connection=redis_conn)
+                ),
+                deferred_count=_registry_count(
+                    DeferredJobRegistry(queue_name, connection=redis_conn)
+                ),
+                scheduled_count=_registry_count(
+                    ScheduledJobRegistry(queue_name, connection=redis_conn)
+                ),
+                failed_count=_registry_count(FailedJobRegistry(queue_name, connection=redis_conn)),
+            )
+        )
+    return queue_items
 
 
 def _enqueue_extract(
@@ -433,6 +487,7 @@ def list_documents(
     error_message_select = (
         "error_message" if "error_message" in columns else "NULL AS error_message"
     )
+    timing_select = ", ".join(_timing_select_fields(columns))
 
     where_clauses = ["workspace_id = :workspace_id"]
     params: dict[str, object] = {"workspace_id": workspace_id, "limit": limit, "offset": offset}
@@ -450,7 +505,8 @@ def list_documents(
     list_sql = text(
         f"""
         SELECT id, filename, {content_type_select}, file_size_bytes, {page_count_select},
-               {ingestion_run_id_select}, status, {error_message_select}, created_at, updated_at
+               {ingestion_run_id_select}, status, {error_message_select}, created_at, updated_at,
+               {timing_select}
         FROM documents
         WHERE {where_sql}
         ORDER BY created_at DESC
@@ -471,6 +527,7 @@ def list_documents(
             error_message=row["error_message"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            timing=_timing_from_row(row),
         )
         for row in rows
     ]
@@ -483,29 +540,132 @@ def get_ingestion_queues(
     workspace_id: uuid.UUID = Depends(get_workspace_id),
 ) -> IngestionQueueStatusResponse:
     redis_conn = Redis.from_url(settings.REDIS_URL)
-    queue_items: list[IngestionQueueStatusItem] = []
-    for queue_name in ("ingest_extract", "ingest_index"):
-        queue = Queue(queue_name, connection=redis_conn)
-        queue_items.append(
-            IngestionQueueStatusItem(
-                name=queue_name,
-                queued_count=len(queue),
-                started_count=_registry_count(
-                    StartedJobRegistry(queue_name, connection=redis_conn)
-                ),
-                deferred_count=_registry_count(
-                    DeferredJobRegistry(queue_name, connection=redis_conn)
-                ),
-                scheduled_count=_registry_count(
-                    ScheduledJobRegistry(queue_name, connection=redis_conn)
-                ),
-                failed_count=_registry_count(FailedJobRegistry(queue_name, connection=redis_conn)),
-            )
-        )
-
     # Keep the endpoint workspace-authenticated even though queue depth is global.
     _ = workspace_id
-    return IngestionQueueStatusResponse(queues=queue_items)
+    return IngestionQueueStatusResponse(queues=_queue_status_items(redis_conn))
+
+
+@router.get("/ingestion-health", response_model=IngestionHealthResponse)
+def get_ingestion_health(
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    db: Session = Depends(get_db),
+) -> IngestionHealthResponse:
+    now = datetime.now(UTC)
+    stale_thresholds = configured_stale_thresholds(
+        uploaded_seconds=settings.INGEST_STALE_UPLOADED_SECONDS,
+        extracting_seconds=settings.INGEST_STALE_EXTRACTING_SECONDS,
+        indexing_seconds=settings.INGEST_STALE_INDEXING_SECONDS,
+    )
+
+    active_rows = (
+        db.execute(
+            text(
+                """
+                SELECT status, updated_at
+                FROM documents
+                WHERE workspace_id = :workspace_id
+                  AND status IN ('uploaded', 'extracting', 'indexing')
+                """
+            ),
+            {"workspace_id": workspace_id},
+        )
+        .mappings()
+        .all()
+    )
+    active_by_status = {status_name: 0 for status_name in ACTIVE_INGESTION_STATUSES}
+    stale_active_count = 0
+    oldest_active_age_seconds: int | None = None
+    for row in active_rows:
+        status_name = str(row["status"])
+        active_by_status[status_name] = active_by_status.get(status_name, 0) + 1
+        age = _age_seconds(now, row["updated_at"])
+        if age is not None:
+            oldest_active_age_seconds = (
+                age if oldest_active_age_seconds is None else max(oldest_active_age_seconds, age)
+            )
+        threshold = stale_thresholds.get(status_name)
+        if threshold is not None and age is not None and age > threshold:
+            stale_active_count += 1
+
+    active_run_count = int(
+        db.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM ingestion_runs
+                WHERE workspace_id = :workspace_id
+                  AND status IN ('preparing', 'processing')
+                """
+            ),
+            {"workspace_id": workspace_id},
+        ).scalar_one()
+        or 0
+    )
+
+    failed_messages = [
+        row["error_message"]
+        for row in (
+            db.execute(
+                text(
+                    """
+                    SELECT error_message
+                    FROM documents
+                    WHERE workspace_id = :workspace_id
+                      AND status = 'failed'
+                    """
+                ),
+                {"workspace_id": workspace_id},
+            )
+            .mappings()
+            .all()
+        )
+    ]
+
+    redis_conn = Redis.from_url(settings.REDIS_URL)
+    return IngestionHealthResponse(
+        generated_at=now,
+        queues=_queue_status_items(redis_conn),
+        active_document_count=len(active_rows),
+        active_documents_by_status=active_by_status,
+        stale_active_document_count=stale_active_count,
+        oldest_active_document_age_seconds=oldest_active_age_seconds,
+        active_ingestion_run_count=active_run_count,
+        stale_thresholds_seconds=stale_thresholds,
+        failures=_failure_summary(failed_messages),
+    )
+
+
+@router.post("/ingestion-reconcile", response_model=IngestionReconciliationResponse)
+def reconcile_ingestion(
+    workspace_id: uuid.UUID = Depends(get_workspace_id),
+    db: Session = Depends(get_db),
+) -> IngestionReconciliationResponse:
+    result = reconcile_stale_ingestion(
+        db=db,
+        workspace_id=workspace_id,
+        stale_after_seconds=configured_stale_thresholds(
+            uploaded_seconds=settings.INGEST_STALE_UPLOADED_SECONDS,
+            extracting_seconds=settings.INGEST_STALE_EXTRACTING_SECONDS,
+            indexing_seconds=settings.INGEST_STALE_INDEXING_SECONDS,
+        ),
+    )
+    db.commit()
+    return IngestionReconciliationResponse(
+        failed_document_count=len(result.documents),
+        refreshed_run_count=len(result.runs),
+        documents=[
+            ReconciledDocumentItem(
+                id=document.id,
+                ingestion_run_id=document.ingestion_run_id,
+                previous_status=document.previous_status,
+                status=document.status,
+                error_message=document.error_message,
+                updated_at=document.updated_at,
+            )
+            for document in result.documents
+        ],
+        runs=[ReconciledIngestionRunItem(id=run.id, status=run.status) for run in result.runs],
+    )
 
 
 @router.get("/ingestion-runs/{run_id}", response_model=IngestionRunResponse)
@@ -587,6 +747,7 @@ def get_document(
         select_fields.append("pages_total")
     else:
         select_fields.append("NULL AS pages_total")
+    select_fields.extend(_timing_select_fields(columns))
 
     detail_sql = text(
         f"""
@@ -662,6 +823,7 @@ def get_document(
             chunks_count=chunks_count,
             embeddings_count=embeddings_count,
         ),
+        timing=_timing_from_row(row),
     )
 
 
@@ -1168,6 +1330,18 @@ def _complete_upload_document(
     update_fields = ["status = 'uploaded'", "updated_at = :updated_at"]
     if "error_message" in columns:
         update_fields.append("error_message = NULL")
+    _set_optional_timestamp_updates(
+        update_fields=update_fields,
+        columns=columns,
+        set_now=("upload_completed_at", "extract_enqueued_at"),
+        clear=(
+            "extract_started_at",
+            "extract_finished_at",
+            "index_enqueued_at",
+            "index_started_at",
+            "index_finished_at",
+        ),
+    )
     update_result = db.execute(
         text(
             f"""
@@ -1462,6 +1636,18 @@ def retry_document(
         update_fields.append("error_message = NULL")
     if "page_count" in columns:
         update_fields.append("page_count = NULL")
+    _set_optional_timestamp_updates(
+        update_fields=update_fields,
+        columns=columns,
+        set_now=("extract_enqueued_at",),
+        clear=(
+            "extract_started_at",
+            "extract_finished_at",
+            "index_enqueued_at",
+            "index_started_at",
+            "index_finished_at",
+        ),
+    )
 
     db.execute(
         text(
@@ -1589,6 +1775,26 @@ def reindex_document(
     }
     if "error_message" in columns:
         update_fields.append("error_message = NULL")
+    if has_pages:
+        _set_optional_timestamp_updates(
+            update_fields=update_fields,
+            columns=columns,
+            set_now=("index_enqueued_at",),
+            clear=("index_started_at", "index_finished_at"),
+        )
+    else:
+        _set_optional_timestamp_updates(
+            update_fields=update_fields,
+            columns=columns,
+            set_now=("extract_enqueued_at",),
+            clear=(
+                "extract_started_at",
+                "extract_finished_at",
+                "index_enqueued_at",
+                "index_started_at",
+                "index_finished_at",
+            ),
+        )
 
     db.execute(
         text(

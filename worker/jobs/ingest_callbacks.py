@@ -9,6 +9,7 @@ from app.core.ingestion_policy import (
     IngestionFailureCategory,
     ingestion_failure_message,
 )
+from app.core.ingestion_runs import refresh_ingestion_run_status
 from app.db.session import SessionLocal
 
 
@@ -19,6 +20,20 @@ def _failure_message(detail: str) -> str:
     return ingestion_failure_message(
         IngestionFailureCategory.TRANSIENT_INFRASTRUCTURE, detail
     )[:2000]
+
+
+def _document_columns(db) -> set[str]:
+    rows = db.execute(
+        text(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'documents'
+            """
+        )
+    ).scalars()
+    return {str(column_name) for column_name in rows}
 
 
 def mark_ingestion_job_failed(job, connection, exc_type, exc_value, traceback) -> None:
@@ -71,27 +86,50 @@ def mark_ingestion_job_failed(job, connection, exc_type, exc_value, traceback) -
             return
 
         # Normal job exceptions already set a structured failure before RQ runs
-        # callbacks. Only repair rows left in an active state by timeout/kill.
-        if row["status"] == "failed" and row["error_message"]:
-            return
-
-        db.execute(
-            text(
-                """
-                UPDATE documents
-                SET status = 'failed',
-                    error_message = :error_message,
-                    updated_at = NOW()
-                WHERE id = :document_id
-                  AND workspace_id = :workspace_id
-                """
-            ),
-            {
-                "workspace_id": workspace_uuid,
-                "document_id": document_uuid,
-                "error_message": error_message,
-            },
+        # callbacks. Only repair rows left in an active state by timeout/kill,
+        # but still refresh the parent run for already-terminal documents.
+        should_update_document = not (
+            row["status"] == "failed" and row["error_message"]
         )
+
+        if should_update_document:
+            update_fields = [
+                "status = 'failed'",
+                "error_message = :error_message",
+                "updated_at = NOW()",
+            ]
+            columns = _document_columns(db)
+            if job.origin == "ingest_extract" and "extract_finished_at" in columns:
+                update_fields.append("extract_finished_at = NOW()")
+            if job.origin == "ingest_index" and "index_finished_at" in columns:
+                update_fields.append("index_finished_at = NOW()")
+
+            db.execute(
+                text(
+                    f"""
+                    UPDATE documents
+                    SET {", ".join(update_fields)}
+                    WHERE id = :document_id
+                      AND workspace_id = :workspace_id
+                    """
+                ),
+                {
+                    "workspace_id": workspace_uuid,
+                    "document_id": document_uuid,
+                    "error_message": error_message,
+                },
+            )
+        if ingestion_run_id:
+            try:
+                run_uuid = uuid.UUID(str(ingestion_run_id))
+            except ValueError:
+                run_uuid = None
+            if run_uuid:
+                refresh_ingestion_run_status(
+                    db=db,
+                    workspace_id=workspace_uuid,
+                    run_id=run_uuid,
+                )
         db.commit()
 
     logger.warning(
