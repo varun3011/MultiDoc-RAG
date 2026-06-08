@@ -45,6 +45,17 @@ export type DocumentRecord = {
   created_at?: string;
   updated_at?: string;
   error_message?: string | null;
+  timing?: IngestionTiming | null;
+};
+
+export type IngestionTiming = {
+  upload_completed_at?: string | null;
+  extract_enqueued_at?: string | null;
+  extract_started_at?: string | null;
+  extract_finished_at?: string | null;
+  index_enqueued_at?: string | null;
+  index_started_at?: string | null;
+  index_finished_at?: string | null;
 };
 
 export type UploadPrepareResponse = {
@@ -463,6 +474,23 @@ function normalizeDocument(rawDoc: unknown): DocumentRecord | null {
     created_at: raw.created_at ? String(raw.created_at) : undefined,
     updated_at: raw.updated_at ? String(raw.updated_at) : undefined,
     error_message: raw.error_message ? String(raw.error_message) : null,
+    timing: normalizeIngestionTiming(raw.timing),
+  };
+}
+
+function normalizeIngestionTiming(value: unknown): IngestionTiming | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const raw = value as Record<string, unknown>;
+  return {
+    upload_completed_at: raw.upload_completed_at == null ? null : String(raw.upload_completed_at),
+    extract_enqueued_at: raw.extract_enqueued_at == null ? null : String(raw.extract_enqueued_at),
+    extract_started_at: raw.extract_started_at == null ? null : String(raw.extract_started_at),
+    extract_finished_at: raw.extract_finished_at == null ? null : String(raw.extract_finished_at),
+    index_enqueued_at: raw.index_enqueued_at == null ? null : String(raw.index_enqueued_at),
+    index_started_at: raw.index_started_at == null ? null : String(raw.index_started_at),
+    index_finished_at: raw.index_finished_at == null ? null : String(raw.index_finished_at),
   };
 }
 
