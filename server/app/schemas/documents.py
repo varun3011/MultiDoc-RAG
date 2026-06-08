@@ -92,6 +92,16 @@ class DocumentJobResponse(BaseModel):
     job_id: str
 
 
+class IngestionTiming(BaseModel):
+    upload_completed_at: datetime | None = None
+    extract_enqueued_at: datetime | None = None
+    extract_started_at: datetime | None = None
+    extract_finished_at: datetime | None = None
+    index_enqueued_at: datetime | None = None
+    index_started_at: datetime | None = None
+    index_finished_at: datetime | None = None
+
+
 class DocumentListItem(BaseModel):
     id: uuid.UUID
     filename: str
@@ -103,6 +113,7 @@ class DocumentListItem(BaseModel):
     error_message: str | None = None
     created_at: datetime
     updated_at: datetime
+    timing: IngestionTiming | None = None
 
 
 class DocumentListResponse(BaseModel):
@@ -132,6 +143,7 @@ class DocumentDetailResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     progress: DocumentProgress
+    timing: IngestionTiming | None = None
 
 
 class IngestionRunStatusCounts(BaseModel):
@@ -169,3 +181,43 @@ class IngestionQueueStatusItem(BaseModel):
 
 class IngestionQueueStatusResponse(BaseModel):
     queues: list[IngestionQueueStatusItem]
+
+
+class IngestionHealthFailureSummary(BaseModel):
+    total_failed: int
+    expected_rejections: int
+    infrastructure_failures: int
+    unknown_failures: int
+
+
+class IngestionHealthResponse(BaseModel):
+    generated_at: datetime
+    queues: list[IngestionQueueStatusItem]
+    active_document_count: int
+    active_documents_by_status: dict[str, int]
+    stale_active_document_count: int
+    oldest_active_document_age_seconds: int | None = None
+    active_ingestion_run_count: int
+    stale_thresholds_seconds: dict[str, int]
+    failures: IngestionHealthFailureSummary
+
+
+class ReconciledDocumentItem(BaseModel):
+    id: uuid.UUID
+    ingestion_run_id: uuid.UUID | None = None
+    previous_status: str
+    status: str
+    error_message: str
+    updated_at: datetime
+
+
+class ReconciledIngestionRunItem(BaseModel):
+    id: uuid.UUID
+    status: str
+
+
+class IngestionReconciliationResponse(BaseModel):
+    failed_document_count: int
+    refreshed_run_count: int
+    documents: list[ReconciledDocumentItem]
+    runs: list[ReconciledIngestionRunItem]

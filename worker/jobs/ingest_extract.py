@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import time
 import uuid
 
 from redis import Redis
 from rq import Queue
 from rq.job import Callback
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.core.ingestion_policy import (
@@ -17,6 +17,7 @@ from app.core.ingestion_policy import (
     format_bytes,
     ingestion_failure_message,
 )
+from app.core.ingestion_runs import refresh_ingestion_run_status
 from app.core.storage import download_object_bytes
 from app.db.session import SessionLocal
 
@@ -40,15 +41,28 @@ def _set_document_status(
     document_id: uuid.UUID,
     status: str,
     error_message: str | None = None,
+    set_now: tuple[str, ...] = (),
+    clear: tuple[str, ...] = (),
+    ingestion_run_id: str | None = None,
 ) -> None:
     with SessionLocal() as db:
+        columns = _document_columns(db)
+        update_fields = [
+            "status = :status",
+            "error_message = :error_message",
+            "updated_at = NOW()",
+        ]
+        for column_name in set_now:
+            if column_name in columns:
+                update_fields.append(f"{column_name} = NOW()")
+        for column_name in clear:
+            if column_name in columns:
+                update_fields.append(f"{column_name} = NULL")
         db.execute(
             text(
-                """
+                f"""
                 UPDATE documents
-                SET status = :status,
-                    error_message = :error_message,
-                    updated_at = NOW()
+                SET {", ".join(update_fields)}
                 WHERE id = :document_id
                   AND workspace_id = :workspace_id
                 """
@@ -59,6 +73,9 @@ def _set_document_status(
                 "document_id": document_id,
                 "workspace_id": workspace_id,
             },
+        )
+        _refresh_ingestion_run(
+            db=db, workspace_id=workspace_id, ingestion_run_id=ingestion_run_id
         )
         db.commit()
 
@@ -101,42 +118,56 @@ def _cleanup_ingestion_artifacts(
         db.commit()
 
 
-def _document_has_column(db, column_name: str) -> bool:
-    result = db.execute(
+def _document_columns(db) -> set[str]:
+    rows = db.execute(
         text(
             """
-            SELECT 1
+            SELECT column_name
             FROM information_schema.columns
             WHERE table_schema = current_schema()
               AND table_name = 'documents'
-              AND column_name = :column_name
             """
         ),
-        {"column_name": column_name},
-    ).scalar_one_or_none()
-    return result is not None
+    ).scalars()
+    return {str(column_name) for column_name in rows}
 
 
-def _allowed_document_statuses(db) -> set[str]:
-    row = db.execute(
-        text(
-            """
-            SELECT pg_get_constraintdef(c.oid)
-            FROM pg_constraint c
-            JOIN pg_class t ON c.conrelid = t.oid
-            WHERE t.relname = 'documents'
-              AND c.conname = 'chk_status'
-            LIMIT 1
-            """
+def _refresh_ingestion_run(
+    *, db, workspace_id: uuid.UUID, ingestion_run_id: str | None
+) -> None:
+    if not ingestion_run_id:
+        return
+    try:
+        run_uuid = uuid.UUID(str(ingestion_run_id))
+    except ValueError:
+        logger.warning(
+            "Skipping ingestion run refresh for invalid run id",
+            extra={
+                "workspace_id": str(workspace_id),
+                "ingestion_run_id": ingestion_run_id,
+            },
         )
-    ).scalar_one_or_none()
-    if not row:
-        return set()
-    definition = str(row)
-    if "IN (" not in definition:
-        return set()
-    inside = definition.split("IN (", 1)[1].rsplit(")", 1)[0]
-    return {part.strip().strip("'\"") for part in inside.split(",")}
+        return
+    refresh_ingestion_run_status(db=db, workspace_id=workspace_id, run_id=run_uuid)
+
+
+def _mark_index_enqueued(*, workspace_id: uuid.UUID, document_id: uuid.UUID) -> None:
+    with SessionLocal() as db:
+        if "index_enqueued_at" not in _document_columns(db):
+            return
+        db.execute(
+            text(
+                """
+                UPDATE documents
+                SET index_enqueued_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = :document_id
+                  AND workspace_id = :workspace_id
+                """
+            ),
+            {"workspace_id": workspace_id, "document_id": document_id},
+        )
+        db.commit()
 
 
 def ingest_extract(
@@ -149,12 +180,27 @@ def ingest_extract(
     workspace_uuid = uuid.UUID(workspace_id)
     document_uuid = uuid.UUID(document_id)
     temp_path = Path(f"/tmp/{document_uuid}.pdf")
+    started_at = time.perf_counter()
 
-    with SessionLocal() as db:
-        allowed = _allowed_document_statuses(db)
-    extracting_status = "extracting" if "extracting" in allowed else "indexing"
     _set_document_status(
-        workspace_id=workspace_uuid, document_id=document_uuid, status=extracting_status
+        workspace_id=workspace_uuid,
+        document_id=document_uuid,
+        status="extracting",
+        set_now=("extract_started_at",),
+        clear=(
+            "extract_finished_at",
+            "index_enqueued_at",
+            "index_started_at",
+            "index_finished_at",
+        ),
+    )
+    logger.info(
+        "ingest_extract started",
+        extra={
+            "workspace_id": workspace_id,
+            "document_id": document_id,
+            "ingestion_run_id": ingestion_run_id,
+        },
     )
 
     try:
@@ -255,12 +301,15 @@ def ingest_extract(
                 "error_message = NULL",
                 "updated_at = NOW()",
             ]
+            columns = _document_columns(db)
+            if "extract_finished_at" in columns:
+                update_fields.append("extract_finished_at = NOW()")
             params: dict[str, object] = {
                 "workspace_id": workspace_uuid,
                 "document_id": document_uuid,
                 "page_count": pages_total,
             }
-            if _document_has_column(db, "pages_total"):
+            if "pages_total" in columns:
                 update_fields.append("pages_total = :pages_total")
                 params["pages_total"] = pages_total
 
@@ -292,6 +341,20 @@ def ingest_extract(
                 "ingestion_run_id": ingestion_run_id,
             },
         )
+        _mark_index_enqueued(workspace_id=workspace_uuid, document_id=document_uuid)
+
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "ingest_extract completed",
+            extra={
+                "workspace_id": workspace_id,
+                "document_id": document_id,
+                "ingestion_run_id": ingestion_run_id,
+                "pages_total": pages_total,
+                "text_chars": total_text_chars,
+                "duration_ms": duration_ms,
+            },
+        )
 
         return {
             "document_id": document_id,
@@ -300,6 +363,7 @@ def ingest_extract(
             "status": "indexing",
         }
     except IngestionFailure as exc:
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
         logger.warning(
             "ingest_extract rejected document",
             extra={
@@ -307,6 +371,7 @@ def ingest_extract(
                 "document_id": document_id,
                 "ingestion_run_id": ingestion_run_id,
                 "failure_category": exc.category.value,
+                "duration_ms": duration_ms,
             },
         )
         _cleanup_ingestion_artifacts(
@@ -317,34 +382,19 @@ def ingest_extract(
             document_id=document_uuid,
             status="failed",
             error_message=str(exc)[:2000],
-        )
-        raise
-    except IntegrityError as exc:
-        logger.exception(
-            "ingest_extract status transition failed due to DB constraint",
-            extra={
-                "workspace_id": workspace_id,
-                "document_id": document_id,
-                "ingestion_run_id": ingestion_run_id,
-            },
-        )
-        _set_document_status(
-            workspace_id=workspace_uuid,
-            document_id=document_uuid,
-            status="failed",
-            error_message=_failure_message(
-                IngestionFailureCategory.TRANSIENT_INFRASTRUCTURE,
-                f"Database status constraint mismatch during extraction: {exc.orig}",
-            ),
+            set_now=("extract_finished_at",),
+            ingestion_run_id=ingestion_run_id,
         )
         raise
     except Exception as exc:  # noqa: BLE001
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
         logger.exception(
             "ingest_extract failed",
             extra={
                 "workspace_id": workspace_id,
                 "document_id": document_id,
                 "ingestion_run_id": ingestion_run_id,
+                "duration_ms": duration_ms,
             },
         )
         _cleanup_ingestion_artifacts(
@@ -358,6 +408,8 @@ def ingest_extract(
                 IngestionFailureCategory.EXTRACTION,
                 f"Text extraction failed. Upload a valid text-based PDF and retry. Details: {exc}",
             ),
+            set_now=("extract_finished_at",),
+            ingestion_run_id=ingestion_run_id,
         )
         raise
     finally:

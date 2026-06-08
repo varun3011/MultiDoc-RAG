@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_workspace_id
@@ -16,6 +15,7 @@ from app.api.query import (
     _estimate_llm_input_tokens,
     _estimate_query_tokens,
     _log_query,
+    resolve_query_document_ids,
 )
 from app.config import settings, utc_next_reset_at
 from app.core.auth import AuthenticatedUser
@@ -23,7 +23,7 @@ from app.core.embeddings import embed_query_text
 from app.core.errors import BudgetExceededError
 from app.core.llm import LLMResult, stream_answer_question_strict_grounded
 from app.core.prompts import INSUFFICIENT_CONTEXT_MESSAGE
-from app.core.retrieval import RetrievedChunk, retrieve_top_k_chunks
+from app.core.retrieval import RetrievedChunk, retrieve_top_k_chunks_for_documents
 from app.core.token_budget import commit_usage, get_budget_status, release_tokens, reserve_tokens
 from app.db.session import get_db
 from app.schemas.query import QueryRequest
@@ -85,32 +85,33 @@ async def run_query_stream(
                 )
                 return
 
-            document = db.execute(
-                text(
-                    """
-                    SELECT id, status
-                    FROM documents
-                    WHERE id = :document_id
-                      AND workspace_id = :workspace_id
-                    LIMIT 1
-                    """
-                ),
-                {"document_id": payload.document_id, "workspace_id": workspace_id},
-            ).mappings().first()
-            if document is None:
-                yield _sse_event("error", _error_payload("Document not found", "DOCUMENT_NOT_FOUND"))
-                return
-            if document["status"] != "ready":
-                yield _sse_event("error", _error_payload("Document is not ready for querying", "DOCUMENT_NOT_READY"))
+            try:
+                document_ids = resolve_query_document_ids(
+                    db=db, workspace_id=workspace_id, payload=payload
+                )
+            except HTTPException as exc:
+                code = (
+                    "DOCUMENT_NOT_FOUND"
+                    if exc.status_code == 404
+                    else (
+                        "DOCUMENT_NOT_READY"
+                        if exc.status_code == 409
+                        else "INVALID_DOCUMENT_SELECTION"
+                    )
+                )
+                message = (
+                    str(exc.detail) if isinstance(exc.detail, str) else "Invalid document selection"
+                )
+                yield _sse_event("error", _error_payload(message, code))
                 return
 
             retrieval_started = time.perf_counter()
             embedding_result = embed_query_text(question)
             embedding_tokens_used = embedding_result.total_tokens
-            chunks = retrieve_top_k_chunks(
+            chunks = retrieve_top_k_chunks_for_documents(
                 db=db,
                 workspace_id=workspace_id,
-                document_id=payload.document_id,
+                document_ids=document_ids,
                 query_embedding=embedding_result.embedding,
                 top_k=settings.TOP_K,
             )
@@ -118,7 +119,9 @@ async def run_query_stream(
 
             estimated_query_embedding = _estimate_query_tokens(question)
             estimated_input = _estimate_llm_input_tokens(question, chunks)
-            estimated_total = estimated_query_embedding + estimated_input + settings.LLM_MAX_OUTPUT_TOKENS
+            estimated_total = (
+                estimated_query_embedding + estimated_input + settings.LLM_MAX_OUTPUT_TOKENS
+            )
             reserve_tokens(
                 db=db,
                 workspace_id=workspace_id,
@@ -130,14 +133,24 @@ async def run_query_stream(
 
             yield _sse_event(
                 "meta",
-                {"request_id": request_id, "document_id": str(payload.document_id), "top_k": settings.TOP_K},
+                {
+                    "request_id": request_id,
+                    "document_id": str(document_ids[0]),
+                    "document_ids": [str(document_id) for document_id in document_ids],
+                    "top_k": settings.TOP_K,
+                },
             )
 
             if not chunks:
                 answer_text = INSUFFICIENT_CONTEXT_MESSAGE
                 yield _sse_event("delta", {"text": answer_text})
                 committed = min(embedding_result.total_tokens, reserved_amount)
-                commit_usage(db=db, workspace_id=workspace_id, amount=committed, usage_date_utc=usage_date_utc)
+                commit_usage(
+                    db=db,
+                    workspace_id=workspace_id,
+                    amount=committed,
+                    usage_date_utc=usage_date_utc,
+                )
                 if reserved_amount > committed:
                     release_tokens(
                         db=db,
@@ -146,13 +159,15 @@ async def run_query_stream(
                         usage_date_utc=usage_date_utc,
                     )
                 reserved_amount = 0
-                usage_now = get_budget_status(db=db, workspace_id=workspace_id, usage_date_utc=usage_date_utc)
+                usage_now = get_budget_status(
+                    db=db, workspace_id=workspace_id, usage_date_utc=usage_date_utc
+                )
                 total_latency_ms = int((time.perf_counter() - request_started) * 1000)
                 _log_query(
                     db=db,
                     workspace_id=workspace_id,
                     user_id=user.user_id,
-                    document_id=payload.document_id,
+                    document_ids=document_ids,
                     question=question,
                     retrieved_chunks=chunks,
                     answer_text=answer_text,
@@ -173,7 +188,9 @@ async def run_query_stream(
             llm_started = time.perf_counter()
             stream_result: LLMResult | None = None
             streamed_parts: list[str] = []
-            async for event in stream_answer_question_strict_grounded(question=question, chunks=chunks):
+            async for event in stream_answer_question_strict_grounded(
+                question=question, chunks=chunks
+            ):
                 if await request.is_disconnected():
                     raise ConnectionError("Client disconnected")
                 if event.type == "delta":
@@ -199,7 +216,9 @@ async def run_query_stream(
 
             actual_total = embedding_result.total_tokens + stream_result.total_tokens
             committed = min(actual_total, reserved_amount)
-            commit_usage(db=db, workspace_id=workspace_id, amount=committed, usage_date_utc=usage_date_utc)
+            commit_usage(
+                db=db, workspace_id=workspace_id, amount=committed, usage_date_utc=usage_date_utc
+            )
             if reserved_amount > committed:
                 release_tokens(
                     db=db,
@@ -208,7 +227,9 @@ async def run_query_stream(
                     usage_date_utc=usage_date_utc,
                 )
             reserved_amount = 0
-            usage_now = get_budget_status(db=db, workspace_id=workspace_id, usage_date_utc=usage_date_utc)
+            usage_now = get_budget_status(
+                db=db, workspace_id=workspace_id, usage_date_utc=usage_date_utc
+            )
 
             citations_payload = {
                 "citations": [
@@ -227,7 +248,7 @@ async def run_query_stream(
                 db=db,
                 workspace_id=workspace_id,
                 user_id=user.user_id,
-                document_id=payload.document_id,
+                document_ids=document_ids,
                 question=question,
                 retrieved_chunks=chunks,
                 answer_text=answer_text,
@@ -246,7 +267,12 @@ async def run_query_stream(
         except BudgetExceededError as exc:
             if reserved_amount > 0:
                 try:
-                    release_tokens(db=db, workspace_id=workspace_id, amount=reserved_amount, usage_date_utc=usage_date_utc)
+                    release_tokens(
+                        db=db,
+                        workspace_id=workspace_id,
+                        amount=reserved_amount,
+                        usage_date_utc=usage_date_utc,
+                    )
                 except Exception:  # noqa: BLE001
                     db.rollback()
             yield _sse_event(
@@ -259,13 +285,23 @@ async def run_query_stream(
         except ConnectionError:
             if reserved_amount > 0:
                 try:
-                    release_tokens(db=db, workspace_id=workspace_id, amount=reserved_amount, usage_date_utc=usage_date_utc)
+                    release_tokens(
+                        db=db,
+                        workspace_id=workspace_id,
+                        amount=reserved_amount,
+                        usage_date_utc=usage_date_utc,
+                    )
                 except Exception:  # noqa: BLE001
                     db.rollback()
         except HTTPException as exc:
             if reserved_amount > 0:
                 try:
-                    release_tokens(db=db, workspace_id=workspace_id, amount=reserved_amount, usage_date_utc=usage_date_utc)
+                    release_tokens(
+                        db=db,
+                        workspace_id=workspace_id,
+                        amount=reserved_amount,
+                        usage_date_utc=usage_date_utc,
+                    )
                 except Exception:  # noqa: BLE001
                     db.rollback()
             message = str(exc.detail) if isinstance(exc.detail, str) else "Query failed"
@@ -273,7 +309,12 @@ async def run_query_stream(
         except Exception as exc:  # noqa: BLE001
             if reserved_amount > 0:
                 try:
-                    release_tokens(db=db, workspace_id=workspace_id, amount=reserved_amount, usage_date_utc=usage_date_utc)
+                    release_tokens(
+                        db=db,
+                        workspace_id=workspace_id,
+                        amount=reserved_amount,
+                        usage_date_utc=usage_date_utc,
+                    )
                 except Exception:  # noqa: BLE001
                     db.rollback()
             total_latency_ms = int((time.perf_counter() - request_started) * 1000)
@@ -282,7 +323,7 @@ async def run_query_stream(
                     db=db,
                     workspace_id=workspace_id,
                     user_id=user.user_id,
-                    document_id=payload.document_id,
+                    document_ids=payload.selected_document_ids,
                     question=payload.question.strip(),
                     retrieved_chunks=chunks,
                     answer_text=answer_text,

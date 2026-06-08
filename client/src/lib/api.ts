@@ -45,6 +45,17 @@ export type DocumentRecord = {
   created_at?: string;
   updated_at?: string;
   error_message?: string | null;
+  timing?: IngestionTiming | null;
+};
+
+export type IngestionTiming = {
+  upload_completed_at?: string | null;
+  extract_enqueued_at?: string | null;
+  extract_started_at?: string | null;
+  extract_finished_at?: string | null;
+  index_enqueued_at?: string | null;
+  index_started_at?: string | null;
+  index_finished_at?: string | null;
 };
 
 export type UploadPrepareResponse = {
@@ -173,6 +184,7 @@ export type QueryResponse = {
 export type QueryStreamMeta = {
   request_id: string;
   document_id: string;
+  document_ids?: string[];
   top_k: number;
 };
 
@@ -462,6 +474,23 @@ function normalizeDocument(rawDoc: unknown): DocumentRecord | null {
     created_at: raw.created_at ? String(raw.created_at) : undefined,
     updated_at: raw.updated_at ? String(raw.updated_at) : undefined,
     error_message: raw.error_message ? String(raw.error_message) : null,
+    timing: normalizeIngestionTiming(raw.timing),
+  };
+}
+
+function normalizeIngestionTiming(value: unknown): IngestionTiming | null {
+  if (typeof value !== "object" || value === null) {
+    return null;
+  }
+  const raw = value as Record<string, unknown>;
+  return {
+    upload_completed_at: raw.upload_completed_at == null ? null : String(raw.upload_completed_at),
+    extract_enqueued_at: raw.extract_enqueued_at == null ? null : String(raw.extract_enqueued_at),
+    extract_started_at: raw.extract_started_at == null ? null : String(raw.extract_started_at),
+    extract_finished_at: raw.extract_finished_at == null ? null : String(raw.extract_finished_at),
+    index_enqueued_at: raw.index_enqueued_at == null ? null : String(raw.index_enqueued_at),
+    index_started_at: raw.index_started_at == null ? null : String(raw.index_started_at),
+    index_finished_at: raw.index_finished_at == null ? null : String(raw.index_finished_at),
   };
 }
 
@@ -637,7 +666,7 @@ export async function apiUploadDocument(token: string, file: File): Promise<Uplo
 
 export async function apiQueryDocument(
   token: string,
-  payload: { document_id: string; question: string },
+  payload: { document_id?: string; document_ids?: string[]; question: string },
 ): Promise<QueryResponse> {
   const response = await apiRequest<Record<string, unknown>>("/query", token, {
     method: "POST",
@@ -733,7 +762,7 @@ function normalizeCitations(value: unknown): QueryCitation[] {
 
 export async function apiQueryStream(
   token: string,
-  payload: { document_id: string; question: string },
+  payload: { document_id?: string; document_ids?: string[]; question: string },
   handlers: QueryStreamEventHandlers,
   abortSignal?: AbortSignal,
 ): Promise<void> {
@@ -791,6 +820,9 @@ export async function apiQueryStream(
         handlers.onMeta?.({
           request_id: String(payloadData.request_id ?? ""),
           document_id: String(payloadData.document_id ?? ""),
+          document_ids: Array.isArray(payloadData.document_ids)
+            ? payloadData.document_ids.map((item) => String(item))
+            : undefined,
           top_k: Number(payloadData.top_k ?? 0),
         });
       } else if (parsed.event === "delta" && payloadData) {

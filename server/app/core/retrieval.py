@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 import uuid
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 
@@ -33,6 +33,24 @@ def retrieve_top_k_chunks(
     query_embedding: list[float],
     top_k: int,
 ) -> list[RetrievedChunk]:
+    return retrieve_top_k_chunks_for_documents(
+        db=db,
+        workspace_id=workspace_id,
+        document_ids=[document_id],
+        query_embedding=query_embedding,
+        top_k=top_k,
+    )
+
+
+def retrieve_top_k_chunks_for_documents(
+    db: Session,
+    workspace_id: uuid.UUID,
+    document_ids: list[uuid.UUID],
+    query_embedding: list[float],
+    top_k: int,
+) -> list[RetrievedChunk]:
+    if not document_ids:
+        return []
     vector_literal = _embedding_to_vector_literal(query_embedding)
     sql = text(
         """
@@ -51,19 +69,19 @@ def retrieve_top_k_chunks(
            AND dp.document_id = c.document_id
            AND dp.page_number = c.page_start
         WHERE ce.workspace_id = :workspace_id
-          AND ce.document_id = :document_id
+          AND ce.document_id IN :document_ids
           AND c.workspace_id = :workspace_id
-          AND c.document_id = :document_id
+          AND c.document_id IN :document_ids
         ORDER BY ce.embedding <=> CAST(:query_embedding AS vector)
         LIMIT :top_k
         """
-    )
+    ).bindparams(bindparam("document_ids", expanding=True))
     rows: list[dict[str, Any]] = (
         db.execute(
             sql,
             {
                 "workspace_id": workspace_id,
-                "document_id": document_id,
+                "document_ids": document_ids,
                 "query_embedding": vector_literal,
                 "top_k": top_k,
             },

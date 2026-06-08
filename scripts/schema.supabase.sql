@@ -48,10 +48,17 @@ CREATE TABLE IF NOT EXISTS documents (
     error_message TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    upload_completed_at TIMESTAMPTZ,
+    extract_enqueued_at TIMESTAMPTZ,
+    extract_started_at TIMESTAMPTZ,
+    extract_finished_at TIMESTAMPTZ,
+    index_enqueued_at TIMESTAMPTZ,
+    index_started_at TIMESTAMPTZ,
+    index_finished_at TIMESTAMPTZ,
 
     CONSTRAINT chk_file_size CHECK (file_size_bytes > 0 AND file_size_bytes <= 10485760),
     CONSTRAINT chk_page_count CHECK (page_count IS NULL OR (page_count > 0 AND page_count <= 10)),
-    CONSTRAINT chk_status CHECK (status IN ('pending_upload', 'uploaded', 'indexing', 'ready', 'failed'))
+    CONSTRAINT chk_status CHECK (status IN ('pending_upload', 'uploading', 'uploaded', 'extracting', 'indexing', 'indexed', 'ready', 'failed'))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_workspace_hash
@@ -61,6 +68,22 @@ CREATE INDEX IF NOT EXISTS idx_documents_workspace_status ON documents(workspace
 
 ALTER TABLE documents
     ADD COLUMN IF NOT EXISTS ingestion_run_id UUID;
+
+ALTER TABLE documents
+    ADD COLUMN IF NOT EXISTS upload_completed_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS extract_enqueued_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS extract_started_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS extract_finished_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS index_enqueued_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS index_started_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS index_finished_at TIMESTAMPTZ;
+
+ALTER TABLE documents
+    DROP CONSTRAINT IF EXISTS chk_status;
+
+ALTER TABLE documents
+    ADD CONSTRAINT chk_status
+    CHECK (status IN ('pending_upload', 'uploading', 'uploaded', 'extracting', 'indexing', 'indexed', 'ready', 'failed'));
 
 DO $$
 BEGIN

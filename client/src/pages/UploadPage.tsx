@@ -91,8 +91,81 @@ function statusRank(status: DocumentStatus): number {
   return 3;
 }
 
+function timestampValue(value?: string): number {
+  const parsed = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function compareByFilename(a: DocumentRecord, b: DocumentRecord): number {
+  const filenameCompare = a.filename.localeCompare(b.filename, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+  if (filenameCompare !== 0) {
+    return filenameCompare;
+  }
+  return a.id.localeCompare(b.id);
+}
+
 function formatDate(value?: string): string {
   return value ? new Date(value).toLocaleString() : "--";
+}
+
+function durationMs(start?: string | null, end?: string | null): number | null {
+  if (!start || !end) {
+    return null;
+  }
+  const startMs = new Date(start).getTime();
+  const endMs = new Date(end).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+    return null;
+  }
+  return endMs - startMs;
+}
+
+function formatDuration(ms: number | null): string | null {
+  if (ms === null) {
+    return null;
+  }
+  if (ms < 1000) {
+    return `${ms} ms`;
+  }
+  const seconds = ms / 1000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remaining = Math.round(seconds % 60);
+  return `${minutes}m ${remaining}s`;
+}
+
+function ingestionDurations(document: DocumentRecord) {
+  const timing = document.timing;
+  if (!timing) {
+    return [];
+  }
+  return [
+    {
+      label: "Queue",
+      value: formatDuration(durationMs(timing.extract_enqueued_at, timing.extract_started_at)),
+    },
+    {
+      label: "Extract",
+      value: formatDuration(durationMs(timing.extract_started_at, timing.extract_finished_at)),
+    },
+    {
+      label: "Index wait",
+      value: formatDuration(durationMs(timing.index_enqueued_at, timing.index_started_at)),
+    },
+    {
+      label: "Index",
+      value: formatDuration(durationMs(timing.index_started_at, timing.index_finished_at)),
+    },
+    {
+      label: "Total",
+      value: formatDuration(durationMs(timing.upload_completed_at, timing.index_finished_at)),
+    },
+  ].filter((item): item is { label: string; value: string } => Boolean(item.value));
 }
 
 function countDocuments(documents: DocumentRecord[]): IngestionRunStatusCounts {
@@ -241,16 +314,17 @@ export default function UploadPage() {
       return true;
     })
     .sort((a, b) => {
+      let primary = 0;
       if (sortMode === "oldest") {
-        return new Date(a.created_at ?? "").getTime() - new Date(b.created_at ?? "").getTime();
+        primary = timestampValue(a.created_at) - timestampValue(b.created_at);
+      } else if (sortMode === "updated") {
+        primary = timestampValue(b.updated_at) - timestampValue(a.updated_at);
+      } else if (sortMode === "status") {
+        primary = statusRank(a.status) - statusRank(b.status);
+      } else {
+        primary = timestampValue(b.created_at) - timestampValue(a.created_at);
       }
-      if (sortMode === "updated") {
-        return new Date(b.updated_at ?? "").getTime() - new Date(a.updated_at ?? "").getTime();
-      }
-      if (sortMode === "status") {
-        return statusRank(a.status) - statusRank(b.status);
-      }
-      return new Date(b.created_at ?? "").getTime() - new Date(a.created_at ?? "").getTime();
+      return primary || compareByFilename(a, b);
     });
 
   const activeDocuments = visibleDocuments.filter((doc) => isProcessing(doc.status));
@@ -640,6 +714,8 @@ function DocumentRow({
   onRetry?: () => void;
   onDelete: () => void;
 }) {
+  const durations = ingestionDurations(document);
+
   return (
     <article className="rounded-xl border border-app-border bg-white px-4 py-3">
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_170px_170px_auto] lg:items-center">
@@ -683,6 +759,16 @@ function DocumentRow({
           </button>
         </div>
       </div>
+      {durations.length > 0 ? (
+        <div className="mt-3 grid gap-2 border-t border-app-border pt-3 text-xs sm:grid-cols-2 lg:grid-cols-5">
+          {durations.map((item) => (
+            <div key={item.label} className="rounded-lg bg-app-surface px-2.5 py-2">
+              <p className="font-medium text-app-muted">{item.label}</p>
+              <p className="mt-0.5 font-semibold text-app-text">{item.value}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </article>
   );
 }
