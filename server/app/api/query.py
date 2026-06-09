@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_workspace_id
@@ -17,13 +17,14 @@ from app.core.errors import BudgetExceededError
 from app.core.llm import answer_question_strict_grounded
 from app.core.prompts import INSUFFICIENT_CONTEXT_MESSAGE
 from app.core.rate_limit import enforce_query_rate_limit
-from app.core.retrieval import RetrievedChunk, retrieve_top_k_chunks
+from app.core.retrieval import RetrievedChunk, retrieve_top_k_chunks_for_documents
 from app.core.token_budget import commit_usage, get_budget_status, release_tokens, reserve_tokens
 from app.db.session import get_db
 from app.schemas.query import QueryCitation, QueryRequest, QueryResponse, QueryUsage
 
 router = APIRouter()
 PROMPT_TEMPLATE_TOKENS = 200
+QUERY_READY_STATUSES = {"ready", "indexed"}
 
 
 def _enforce_query_rate_limit(workspace_id: uuid.UUID) -> None:
@@ -35,7 +36,13 @@ def _estimate_query_tokens(question: str) -> int:
 
 
 def _estimate_llm_input_tokens(question: str, chunks: list[RetrievedChunk]) -> int:
-    return int(math.ceil(sum(chunk.token_count for chunk in chunks) + PROMPT_TEMPLATE_TOKENS + (len(question) / 4)))
+    return int(
+        math.ceil(
+            sum(chunk.token_count for chunk in chunks)
+            + PROMPT_TEMPLATE_TOKENS
+            + (len(question) / 4)
+        )
+    )
 
 
 def _log_query(
@@ -43,7 +50,7 @@ def _log_query(
     *,
     workspace_id: uuid.UUID,
     user_id: str,
-    document_id: uuid.UUID,
+    document_ids: list[uuid.UUID],
     question: str,
     retrieved_chunks: list[RetrievedChunk],
     answer_text: str | None,
@@ -104,7 +111,7 @@ def _log_query(
             "workspace_id": workspace_id,
             "user_id": user_id,
             "query_text": question,
-            "documents_searched": [document_id],
+            "documents_searched": document_ids,
             "retrieved_chunk_ids": [chunk.chunk_id for chunk in retrieved_chunks],
             "chunk_scores": [chunk.score for chunk in retrieved_chunks],
             "answer_text": answer_text,
@@ -131,6 +138,76 @@ def _usage_to_response(usage: dict[str, int | datetime]) -> QueryUsage:
     )
 
 
+def _selected_document_ids(payload: QueryRequest) -> list[uuid.UUID]:
+    selected: list[uuid.UUID] = []
+    for document_id in payload.selected_document_ids:
+        if document_id not in selected:
+            selected.append(document_id)
+    return selected
+
+
+def resolve_query_document_ids(
+    *,
+    db: Session,
+    workspace_id: uuid.UUID,
+    payload: QueryRequest,
+) -> list[uuid.UUID]:
+    document_ids = _selected_document_ids(payload)
+    if not document_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one document is required",
+        )
+    if len(document_ids) > settings.MAX_QUERY_DOCUMENTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Query supports up to {settings.MAX_QUERY_DOCUMENTS} selected documents",
+        )
+
+    rows = (
+        db.execute(
+            text(
+                """
+                SELECT id, status, COALESCE(page_count, 0) AS page_count
+                FROM documents
+                WHERE workspace_id = :workspace_id
+                  AND id IN :document_ids
+                """
+            ).bindparams(bindparam("document_ids", expanding=True)),
+            {"workspace_id": workspace_id, "document_ids": document_ids},
+        )
+        .mappings()
+        .all()
+    )
+    rows_by_id = {row["id"]: row for row in rows}
+    missing_ids = [document_id for document_id in document_ids if document_id not in rows_by_id]
+    if missing_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    not_ready = [
+        document_id
+        for document_id in document_ids
+        if rows_by_id[document_id]["status"] not in QUERY_READY_STATUSES
+    ]
+    if not_ready:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="All selected documents must be ready or indexed for querying",
+        )
+
+    total_pages = sum(int(row["page_count"] or 0) for row in rows)
+    if total_pages > settings.MAX_QUERY_TOTAL_PAGES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Selected documents contain {total_pages} pages; "
+                f"query supports up to {settings.MAX_QUERY_TOTAL_PAGES} pages"
+            ),
+        )
+
+    return document_ids
+
+
 @router.post("", response_model=QueryResponse)
 def run_query(
     payload: QueryRequest,
@@ -146,22 +223,7 @@ def run_query(
             detail=f"question must be between 1 and {settings.MAX_QUESTION_CHARS} characters",
         )
 
-    document = db.execute(
-        text(
-            """
-            SELECT id, status
-            FROM documents
-            WHERE id = :document_id
-              AND workspace_id = :workspace_id
-            LIMIT 1
-            """
-        ),
-        {"document_id": payload.document_id, "workspace_id": workspace_id},
-    ).mappings().first()
-    if document is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    if document["status"] != "ready":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Document is not ready for querying")
+    document_ids = resolve_query_document_ids(db=db, workspace_id=workspace_id, payload=payload)
 
     request_started = time.perf_counter()
     usage_date_utc = datetime.now(UTC)
@@ -174,10 +236,10 @@ def run_query(
     try:
         retrieval_started = time.perf_counter()
         embedding_result = embed_query_text(question)
-        chunks = retrieve_top_k_chunks(
+        chunks = retrieve_top_k_chunks_for_documents(
             db=db,
             workspace_id=workspace_id,
-            document_id=payload.document_id,
+            document_ids=document_ids,
             query_embedding=embedding_result.embedding,
             top_k=settings.TOP_K,
         )
@@ -185,7 +247,9 @@ def run_query(
 
         estimated_query_embedding = _estimate_query_tokens(question)
         estimated_input = _estimate_llm_input_tokens(question, chunks)
-        estimated_total = estimated_query_embedding + estimated_input + settings.LLM_MAX_OUTPUT_TOKENS
+        estimated_total = (
+            estimated_query_embedding + estimated_input + settings.LLM_MAX_OUTPUT_TOKENS
+        )
         reserve_tokens(
             db=db,
             workspace_id=workspace_id,
@@ -198,7 +262,9 @@ def run_query(
         if not chunks:
             answer_text = INSUFFICIENT_CONTEXT_MESSAGE
             committed = min(embedding_result.total_tokens, reserved_amount)
-            commit_usage(db=db, workspace_id=workspace_id, amount=committed, usage_date_utc=usage_date_utc)
+            commit_usage(
+                db=db, workspace_id=workspace_id, amount=committed, usage_date_utc=usage_date_utc
+            )
             if reserved_amount > committed:
                 release_tokens(
                     db=db,
@@ -207,13 +273,15 @@ def run_query(
                     usage_date_utc=usage_date_utc,
                 )
             reserved_amount = 0
-            usage_now = get_budget_status(db=db, workspace_id=workspace_id, usage_date_utc=usage_date_utc)
+            usage_now = get_budget_status(
+                db=db, workspace_id=workspace_id, usage_date_utc=usage_date_utc
+            )
             total_latency_ms = int((time.perf_counter() - request_started) * 1000)
             _log_query(
                 db=db,
                 workspace_id=workspace_id,
                 user_id=user.user_id,
-                document_id=payload.document_id,
+                document_ids=document_ids,
                 question=question,
                 retrieved_chunks=chunks,
                 answer_text=answer_text,
@@ -226,7 +294,9 @@ def run_query(
                 llm_output_tokens=None,
                 total_tokens_used=committed,
             )
-            return QueryResponse(answer=answer_text, citations=[], usage=_usage_to_response(usage_now))
+            return QueryResponse(
+                answer=answer_text, citations=[], usage=_usage_to_response(usage_now)
+            )
 
         llm_started = time.perf_counter()
         llm_result = answer_question_strict_grounded(question=question, chunks=chunks)
@@ -237,7 +307,9 @@ def run_query(
 
         actual_total = embedding_result.total_tokens + llm_result.total_tokens
         committed = min(actual_total, reserved_amount)
-        commit_usage(db=db, workspace_id=workspace_id, amount=committed, usage_date_utc=usage_date_utc)
+        commit_usage(
+            db=db, workspace_id=workspace_id, amount=committed, usage_date_utc=usage_date_utc
+        )
         if reserved_amount > committed:
             release_tokens(
                 db=db,
@@ -246,7 +318,9 @@ def run_query(
                 usage_date_utc=usage_date_utc,
             )
         reserved_amount = 0
-        usage_now = get_budget_status(db=db, workspace_id=workspace_id, usage_date_utc=usage_date_utc)
+        usage_now = get_budget_status(
+            db=db, workspace_id=workspace_id, usage_date_utc=usage_date_utc
+        )
 
         citations = [
             QueryCitation(
@@ -263,7 +337,7 @@ def run_query(
             db=db,
             workspace_id=workspace_id,
             user_id=user.user_id,
-            document_id=payload.document_id,
+            document_ids=document_ids,
             question=question,
             retrieved_chunks=chunks,
             answer_text=answer_text,
@@ -300,18 +374,28 @@ def run_query(
         ) from exc
     except HTTPException:
         if reserved_amount > 0:
-            release_tokens(db=db, workspace_id=workspace_id, amount=reserved_amount, usage_date_utc=usage_date_utc)
+            release_tokens(
+                db=db,
+                workspace_id=workspace_id,
+                amount=reserved_amount,
+                usage_date_utc=usage_date_utc,
+            )
         raise
     except Exception as exc:  # noqa: BLE001
         if reserved_amount > 0:
-            release_tokens(db=db, workspace_id=workspace_id, amount=reserved_amount, usage_date_utc=usage_date_utc)
+            release_tokens(
+                db=db,
+                workspace_id=workspace_id,
+                amount=reserved_amount,
+                usage_date_utc=usage_date_utc,
+            )
         total_latency_ms = int((time.perf_counter() - request_started) * 1000)
         try:
             _log_query(
                 db=db,
                 workspace_id=workspace_id,
                 user_id=user.user_id,
-                document_id=payload.document_id,
+                document_ids=document_ids,
                 question=question,
                 retrieved_chunks=[],
                 answer_text=answer_text,

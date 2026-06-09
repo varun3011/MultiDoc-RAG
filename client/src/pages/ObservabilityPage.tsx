@@ -1,15 +1,91 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useAuth } from "../context/AuthContext";
-import { apiGetObservability, type ObservabilityResponse } from "../lib/api";
+import { apiGetDocuments, apiGetObservability, type DocumentRecord, type ObservabilityResponse } from "../lib/api";
 
 function pct(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function durationMs(start?: string | null, end?: string | null): number | null {
+  if (!start || !end) {
+    return null;
+  }
+  const startMs = new Date(start).getTime();
+  const endMs = new Date(end).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
+    return null;
+  }
+  return endMs - startMs;
+}
+
+function formatDuration(ms: number | null): string {
+  if (ms === null) {
+    return "--";
+  }
+  if (ms < 1000) {
+    return `${ms} ms`;
+  }
+  const seconds = ms / 1000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remaining = Math.round(seconds % 60);
+  return `${minutes}m ${remaining}s`;
+}
+
+function average(values: Array<number | null>): number | null {
+  const valid = values.filter((value): value is number => value !== null);
+  if (valid.length === 0) {
+    return null;
+  }
+  return Math.round(valid.reduce((sum, value) => sum + value, 0) / valid.length);
+}
+
+function timingStats(documents: DocumentRecord[]) {
+  const documentsWithTiming = documents.filter((document) => document.timing);
+  const completed = documentsWithTiming.filter((document) => document.timing?.index_finished_at);
+  const totalDurations = completed.map((document) =>
+    durationMs(document.timing?.upload_completed_at, document.timing?.index_finished_at),
+  );
+  const uploadTimes = completed
+    .map((document) => document.timing?.upload_completed_at)
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value).getTime())
+    .filter((value) => Number.isFinite(value));
+  const finishTimes = completed
+    .map((document) => document.timing?.index_finished_at)
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value).getTime())
+    .filter((value) => Number.isFinite(value));
+  const batchWallMs =
+    uploadTimes.length > 0 && finishTimes.length > 0
+      ? Math.max(...finishTimes) - Math.min(...uploadTimes)
+      : null;
+  return {
+    completed,
+    avgExtractMs: average(
+      completed.map((document) =>
+        durationMs(document.timing?.extract_started_at, document.timing?.extract_finished_at),
+      ),
+    ),
+    avgIndexMs: average(
+      completed.map((document) =>
+        durationMs(document.timing?.index_started_at, document.timing?.index_finished_at),
+      ),
+    ),
+    avgTotalMs: average(
+      totalDurations,
+    ),
+    batchWallMs,
+  };
+}
+
 export default function ObservabilityPage() {
   const { accessToken } = useAuth();
   const [data, setData] = useState<ObservabilityResponse | null>(null);
+  const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,14 +98,19 @@ export default function ObservabilityPage() {
       setLoading(true);
       setError(null);
       try {
-        const response = await apiGetObservability(accessToken);
+        const [response, recentDocuments] = await Promise.all([
+          apiGetObservability(accessToken),
+          apiGetDocuments(accessToken, { limit: 100 }),
+        ]);
         if (active) {
           setData(response);
+          setDocuments(recentDocuments);
         }
       } catch (err) {
         if (active) {
           setError(err instanceof Error ? err.message : "Failed to load observability");
           setData(null);
+          setDocuments([]);
         }
       } finally {
         if (active) {
@@ -49,6 +130,8 @@ export default function ObservabilityPage() {
     }
     return Math.max(...data.query_volume.map((point) => point.count), 1);
   }, [data]);
+
+  const ingestionTiming = useMemo(() => timingStats(documents), [documents]);
 
   if (loading) {
     return <div className="p-4 md:p-6 text-sm text-app-muted">Loading observability data...</div>;
@@ -128,6 +211,54 @@ export default function ObservabilityPage() {
       </section>
 
       <section className="rounded-2xl border border-app-border bg-white p-5 md:p-6">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-app-text">Ingestion timing</h3>
+            <p className="text-sm text-app-muted">Recent completed documents with stage timing.</p>
+          </div>
+          <p className="text-xs text-app-muted">{ingestionTiming.completed.length} completed documents sampled</p>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Metric label="Avg extraction" value={formatDuration(ingestionTiming.avgExtractMs)} />
+          <Metric label="Avg indexing" value={formatDuration(ingestionTiming.avgIndexMs)} />
+          <Metric label="Avg total ingestion" value={formatDuration(ingestionTiming.avgTotalMs)} />
+          <Metric label="Batch wall time" value={formatDuration(ingestionTiming.batchWallMs)} />
+        </div>
+
+        <div className="mt-4 space-y-2">
+          {ingestionTiming.completed.length === 0 ? (
+            <p className="rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-muted">
+              No completed ingestion timing data yet.
+            </p>
+          ) : (
+            ingestionTiming.completed.map((document) => (
+              <div key={document.id} className="rounded-xl border border-app-border bg-app-surface p-3">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="truncate text-sm font-semibold text-app-text">{document.filename}</p>
+                  <p className="text-xs text-app-muted">{document.status}</p>
+                </div>
+                <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+                  <TimingValue
+                    label="Extract"
+                    value={durationMs(document.timing?.extract_started_at, document.timing?.extract_finished_at)}
+                  />
+                  <TimingValue
+                    label="Index"
+                    value={durationMs(document.timing?.index_started_at, document.timing?.index_finished_at)}
+                  />
+                  <TimingValue
+                    label="Total"
+                    value={durationMs(document.timing?.upload_completed_at, document.timing?.index_finished_at)}
+                  />
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-app-border bg-white p-5 md:p-6">
         <h3 className="text-base font-semibold text-app-text">Recent query errors</h3>
         <div className="mt-4 space-y-2">
           {data.recent_errors.length === 0 ? (
@@ -152,6 +283,15 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="rounded-xl border border-app-border bg-white p-4">
       <p className="text-xs uppercase tracking-[0.08em] text-app-muted">{label}</p>
       <p className="mt-2 text-sm font-semibold text-app-text">{value}</p>
+    </div>
+  );
+}
+
+function TimingValue({ label, value }: { label: string; value: number | null }) {
+  return (
+    <div className="rounded-lg bg-white px-2.5 py-2">
+      <p className="font-medium text-app-muted">{label}</p>
+      <p className="mt-0.5 font-semibold text-app-text">{formatDuration(value)}</p>
     </div>
   );
 }

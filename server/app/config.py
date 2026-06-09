@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     LLM_MAX_OUTPUT_TOKENS: int = 2000
     TOP_K: int = 5
     MAX_QUESTION_CHARS: int = 500
+    MAX_QUERY_DOCUMENTS: int = 10
+    MAX_QUERY_TOTAL_PAGES: int = 100
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIM: int = 1536
     OPENAI_EMBEDDING_TIMEOUT_SECONDS: int = 300
@@ -38,6 +40,9 @@ class Settings(BaseSettings):
     EMBEDDING_BATCH_SIZE: int = 32
     INGEST_EXTRACT_JOB_TIMEOUT_SECONDS: int = 900
     INGEST_INDEX_JOB_TIMEOUT_SECONDS: int = 1800
+    INGEST_STALE_UPLOADED_SECONDS: int = 3600
+    INGEST_STALE_EXTRACTING_SECONDS: int = 1800
+    INGEST_STALE_INDEXING_SECONDS: int = 3600
     ALLOWED_CONTENT_TYPES: list[str] = Field(default_factory=lambda: ["application/pdf"])
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
