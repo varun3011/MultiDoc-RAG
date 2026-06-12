@@ -35,6 +35,7 @@ jobs:
       - name: Run Trivy FS Scan
         run: |
           docker run --rm \
+            --user root \
             -v "${{ github.workspace }}:/workspace" \
             -w /workspace \
             local-trivy fs . \
