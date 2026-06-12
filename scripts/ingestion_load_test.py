@@ -7,6 +7,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -46,7 +47,7 @@ def _json_request(
     return json.loads(response_body) if response_body else {}
 
 
-def _put_file(url: str, path: Path) -> None:
+def _put_file(url: str, path: Path, timeout_seconds: float) -> None:
     _validate_http_url(url)
     request = urllib.request.Request(
         url,
@@ -55,7 +56,7 @@ def _put_file(url: str, path: Path) -> None:
         headers={"Content-Type": "application/pdf"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:  # nosec B310
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:  # nosec B310
             response.read()
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -169,27 +170,63 @@ def run_load_test(args: argparse.Namespace) -> dict[str, Any]:
         request_timeout_seconds=args.request_timeout_seconds,
         payload=prepare_payload,
     )
-    upload_items = []
+    prepared_uploads = []
     file_by_name = {path.name: path for path in files}
     for item in prepare.get("items", []):
         if item.get("status") not in {"prepared", "accepted"}:
             continue
         path = file_by_name[str(item["filename"])]
-        _put_file(str(item["upload_url"]), path)
-        upload_items.append(
+        prepared_uploads.append(
             {
+                "index": int(item["index"]),
                 "document_id": item["document_id"],
                 "bucket": item["bucket"],
                 "storage_path": item["storage_path"],
+                "upload_url": item["upload_url"],
+                "path": path,
             }
         )
+
+    upload_items = []
+    max_workers = max(1, min(args.upload_concurrency, len(prepared_uploads) or 1))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_upload = {
+            executor.submit(
+                _put_file,
+                str(upload["upload_url"]),
+                upload["path"],
+                args.upload_timeout_seconds,
+            ): upload
+            for upload in prepared_uploads
+        }
+        for future in as_completed(future_to_upload):
+            upload = future_to_upload[future]
+            future.result()
+            upload_items.append(
+                {
+                    "index": upload["index"],
+                    "document_id": upload["document_id"],
+                    "bucket": upload["bucket"],
+                    "storage_path": upload["storage_path"],
+                }
+            )
+
+    upload_items.sort(key=lambda item: int(item["index"]))
+    complete_files = [
+        {
+            "document_id": item["document_id"],
+            "bucket": item["bucket"],
+            "storage_path": item["storage_path"],
+        }
+        for item in upload_items
+    ]
 
     complete = _json_request(
         method="POST",
         url=f"{api_base}/documents/upload-complete-batch",
         token=token,
         request_timeout_seconds=args.request_timeout_seconds,
-        payload={"ingestion_run_id": prepare.get("ingestion_run_id"), "files": upload_items},
+        payload={"ingestion_run_id": prepare.get("ingestion_run_id"), "files": complete_files},
     )
     prepare_upload_complete_seconds = round(time.perf_counter() - prepare_started, 3)
 
@@ -244,6 +281,7 @@ def run_load_test(args: argparse.Namespace) -> dict[str, Any]:
             "prepare_upload_complete": prepare_upload_complete_seconds,
             "total": total_seconds,
         },
+        "upload_concurrency": max_workers,
     }
 
     artifact_dir = Path(args.artifact_dir)
@@ -267,6 +305,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--artifact-dir", default="artifacts/ingestion-load")
     parser.add_argument("--poll-seconds", type=float, default=5)
     parser.add_argument("--request-timeout-seconds", type=float, default=180)
+    parser.add_argument("--upload-timeout-seconds", type=float, default=120)
+    parser.add_argument("--upload-concurrency", type=int, default=8)
     parser.add_argument("--timeout-seconds", type=int, default=1800)
     return parser.parse_args()
 

@@ -231,6 +231,7 @@ export default function UploadPage() {
     setActiveDocumentId,
   } = useAppShellContext();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteAllProgress, setDeleteAllProgress] = useState<{ done: number; total: number } | null>(null);
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [activeRun, setActiveRun] = useState<IngestionRunResponse | null>(null);
@@ -353,6 +354,42 @@ export default function UploadPage() {
     }
   };
 
+  const handleDeleteAll = async () => {
+    if (documents.length === 0) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete all ${documents.length} documents in this workspace? This cannot be undone.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleteAllProgress({ done: 0, total: documents.length });
+    const failures: string[] = [];
+
+    for (const [index, document] of documents.entries()) {
+      try {
+        await apiDeleteDocument(accessToken, document.id);
+        if (activeDocument?.id === document.id) {
+          setActiveDocumentId(null);
+        }
+      } catch (error) {
+        failures.push(`${document.filename}: ${error instanceof Error ? error.message : "Delete failed"}`);
+      } finally {
+        setDeleteAllProgress({ done: index + 1, total: documents.length });
+      }
+    }
+
+    setDeleteAllProgress(null);
+    await Promise.all([refreshDocuments(), refreshWorkspace(), refreshIngestionState()]);
+
+    if (failures.length > 0) {
+      window.alert(`Some documents could not be deleted:\n${failures.join("\n")}`);
+    }
+  };
+
   const retryDocuments = async (targets: DocumentRecord[]) => {
     const retryableTargets = targets.filter((doc) => isRetryableFailure(doc.error_message));
     if (retryableTargets.length === 0) {
@@ -463,6 +500,16 @@ export default function UploadPage() {
             <option value="updated">Recently updated</option>
             <option value="status">Status order</option>
           </select>
+
+          <button
+            type="button"
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => void handleDeleteAll()}
+            disabled={documents.length === 0 || deleteAllProgress !== null || deletingId !== null}
+          >
+            <Trash2 size={15} />
+            {deleteAllProgress ? `Deleting ${deleteAllProgress.done}/${deleteAllProgress.total}` : "Delete all"}
+          </button>
         </div>
 
         <div className="mt-5 space-y-5">

@@ -404,20 +404,23 @@ def ingest_index(
         embedding_batch_size = max(1, int(settings.EMBEDDING_BATCH_SIZE))
         embedding_count = 0
         total_embedding_tokens = 0
+        total_reserved_tokens = sum(int(row["token_count"]) for row in chunk_rows)
 
+        with SessionLocal() as db:
+            reserve_tokens(
+                db=db,
+                workspace_id=workspace_uuid,
+                amount=total_reserved_tokens,
+                usage_date_utc=usage_date,
+                reservation_ttl_seconds=settings.RESERVATION_TTL_SECONDS,
+            )
+            db.commit()
+        outstanding_reservations.append(total_reserved_tokens)
+
+        embedding_rows: list[dict[str, object]] = []
         for batch_rows in _batched(chunk_rows, embedding_batch_size):
             batch_started_at = time.perf_counter()
             estimated_tokens = sum(int(row["token_count"]) for row in batch_rows)
-            with SessionLocal() as db:
-                reserve_tokens(
-                    db=db,
-                    workspace_id=workspace_uuid,
-                    amount=estimated_tokens,
-                    usage_date_utc=usage_date,
-                    reservation_ttl_seconds=settings.RESERVATION_TTL_SECONDS,
-                )
-                db.commit()
-            outstanding_reservations.append(estimated_tokens)
 
             response = client.embeddings.create(
                 model=model,
@@ -434,7 +437,6 @@ def ingest_index(
             if all(getattr(item, "index", None) is not None for item in response_data):
                 response_data.sort(key=lambda item: int(item.index))
 
-            embedding_rows: list[dict[str, object]] = []
             for row, embedding_data in zip(batch_rows, response_data, strict=True):
                 embedding_rows.append(
                     {
@@ -447,25 +449,6 @@ def ingest_index(
                         "embedding_model": model,
                     }
                 )
-
-            with SessionLocal() as db:
-                db.execute(
-                    text(
-                        """
-                        INSERT INTO chunk_embeddings (chunk_id, workspace_id, document_id, embedding, embedding_model)
-                        VALUES (:chunk_id, :workspace_id, :document_id, CAST(:embedding AS vector), :embedding_model)
-                        """
-                    ),
-                    embedding_rows,
-                )
-                commit_usage(
-                    db=db,
-                    workspace_id=workspace_uuid,
-                    amount=estimated_tokens,
-                    usage_date_utc=usage_date,
-                )
-                db.commit()
-            outstanding_reservations.pop()
 
             embedding_count += len(batch_rows)
             total_embedding_tokens += estimated_tokens
@@ -480,6 +463,27 @@ def ingest_index(
                     "embedding_api_latency_ms": embedding_api_latency_ms,
                 },
             )
+
+        with SessionLocal() as db:
+            db.execute(
+                text(
+                    """
+                    INSERT INTO chunk_embeddings (chunk_id, workspace_id, document_id, embedding, embedding_model)
+                    VALUES (:chunk_id, :workspace_id, :document_id, CAST(:embedding AS vector), :embedding_model)
+                    """
+                ),
+                embedding_rows,
+            )
+            db.commit()
+        with SessionLocal() as db:
+            commit_usage(
+                db=db,
+                workspace_id=workspace_uuid,
+                amount=total_reserved_tokens,
+                usage_date_utc=usage_date,
+            )
+            db.commit()
+        outstanding_reservations.pop()
 
         final_status = "indexed"
         _mark_document_indexed(

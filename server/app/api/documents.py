@@ -16,7 +16,7 @@ from rq.registry import (
     ScheduledJobRegistry,
     StartedJobRegistry,
 )
-from sqlalchemy import func, inspect, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_workspace_id
@@ -167,8 +167,17 @@ def _sanitize_filename(filename: str) -> str:
 
 
 def _document_columns(db: Session) -> set[str]:
-    bind = db.get_bind()
-    return {col["name"] for col in inspect(bind).get_columns("documents")}
+    rows = db.execute(
+        text(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'documents'
+            """
+        )
+    ).scalars()
+    return {str(column_name) for column_name in rows}
 
 
 def _timing_select_fields(columns: set[str]) -> list[str]:
@@ -230,7 +239,20 @@ def _failure_summary(error_messages: list[str | None]) -> IngestionHealthFailure
 
 
 def _table_exists(db: Session, table_name: str) -> bool:
-    return inspect(db.get_bind()).has_table(table_name)
+    return bool(
+        db.execute(
+            text(
+                """
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = current_schema()
+                  AND table_name = :table_name
+                LIMIT 1
+                """
+            ),
+            {"table_name": table_name},
+        ).first()
+    )
 
 
 def _require_ingestion_run_schema(db: Session) -> None:

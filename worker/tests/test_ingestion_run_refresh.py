@@ -54,12 +54,18 @@ class FakeDb:
             return FakeResult(scalar_values=list(self.columns))
         if "SELECT status, error_message" in sql:
             return FakeResult(first_row=self.document_row)
-        if "SELECT accepted_documents, rejected_documents" in sql:
+        if "r.accepted_documents" in sql and "COUNT(d.id) AS count" in sql:
             return FakeResult(
-                first_row={"accepted_documents": 1, "rejected_documents": 0}
+                all_rows=[
+                    {
+                        "accepted_documents": 1,
+                        "rejected_documents": 0,
+                        "status": row["status"],
+                        "count": row["count"],
+                    }
+                    for row in self.status_count_rows
+                ]
             )
-        if "SELECT status, COUNT(*) AS count" in sql:
-            return FakeResult(all_rows=self.status_count_rows)
         return FakeResult()
 
     def commit(self) -> None:

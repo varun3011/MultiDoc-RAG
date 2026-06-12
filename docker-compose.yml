@@ -22,6 +22,9 @@ services:
     container_name: rag-server
     environment:
       - DATABASE_URL=${DATABASE_URL}
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-1}
+      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-0}
+      - DB_POOL_TIMEOUT_SECONDS=${DB_POOL_TIMEOUT_SECONDS:-30}
       - REDIS_URL=redis://redis:6379/0
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
@@ -53,6 +56,9 @@ services:
       dockerfile: Dockerfile
     environment:
       - DATABASE_URL=${DATABASE_URL}
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-1}
+      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-0}
+      - DB_POOL_TIMEOUT_SECONDS=${DB_POOL_TIMEOUT_SECONDS:-30}
       - REDIS_URL=redis://redis:6379/0
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
@@ -63,14 +69,14 @@ services:
       - INGEST_INDEX_JOB_TIMEOUT_SECONDS=${INGEST_INDEX_JOB_TIMEOUT_SECONDS:-1800}
       - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-32}
       - QUEUE_NAME=ingest_extract
-      - WORKER_COUNT=5
+      - WORKER_COUNT=4
     volumes:
       - ./worker:/app
       - ./server/app:/app/shared  # Share code
     depends_on:
       - redis
     deploy:
-      replicas: 5
+      replicas: 4
     command: python worker.py ingest_extract
 
   # RQ Workers (Index)
@@ -80,6 +86,9 @@ services:
       dockerfile: Dockerfile
     environment:
       - DATABASE_URL=${DATABASE_URL}
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-1}
+      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-0}
+      - DB_POOL_TIMEOUT_SECONDS=${DB_POOL_TIMEOUT_SECONDS:-30}
       - REDIS_URL=redis://redis:6379/0
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
@@ -90,14 +99,14 @@ services:
       - INGEST_INDEX_JOB_TIMEOUT_SECONDS=${INGEST_INDEX_JOB_TIMEOUT_SECONDS:-1800}
       - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-32}
       - QUEUE_NAME=ingest_index
-      - WORKER_COUNT=3
+      - WORKER_COUNT=4
     volumes:
       - ./worker:/app
       - ./server/app:/app/shared
     depends_on:
       - redis
     deploy:
-      replicas: 3
+      replicas: 4
     command: python worker.py ingest_index
 
   # RQ Dashboard (monitoring)

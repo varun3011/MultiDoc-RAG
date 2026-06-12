@@ -96,30 +96,43 @@ def refresh_ingestion_run_status(
     run_id: uuid.UUID,
     updated_at: datetime | None = None,
 ) -> str | None:
-    run_row = (
+    rows = (
         db.execute(
             text(
                 """
-                SELECT accepted_documents, rejected_documents
-                FROM ingestion_runs
-                WHERE id = :run_id
-                  AND workspace_id = :workspace_id
-                LIMIT 1
+                SELECT
+                    r.accepted_documents,
+                    r.rejected_documents,
+                    d.status,
+                    COUNT(d.id) AS count
+                FROM ingestion_runs r
+                LEFT JOIN documents d
+                  ON d.workspace_id = r.workspace_id
+                 AND d.ingestion_run_id = r.id
+                WHERE r.id = :run_id
+                  AND r.workspace_id = :workspace_id
+                GROUP BY r.accepted_documents, r.rejected_documents, d.status
                 """
             ),
             {"workspace_id": workspace_id, "run_id": run_id},
         )
         .mappings()
-        .first()
+        .all()
     )
-    if run_row is None:
+    if not rows:
         return None
 
-    status_counts = document_status_counts_for_run(db=db, workspace_id=workspace_id, run_id=run_id)
+    first_row = rows[0]
+    status_counts = empty_document_status_counts()
+    for row in rows:
+        status_name = row["status"]
+        if status_name is not None:
+            status_counts[str(status_name)] = int(row["count"] or 0)
+    status_counts["total"] = sum(status_counts.values())
     run_status = derive_ingestion_run_status(
         status_counts=status_counts,
-        accepted_documents=int(run_row["accepted_documents"] or 0),
-        rejected_documents=int(run_row["rejected_documents"] or 0),
+        accepted_documents=int(first_row["accepted_documents"] or 0),
+        rejected_documents=int(first_row["rejected_documents"] or 0),
     )
     db.execute(
         text(
