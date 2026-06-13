@@ -18,6 +18,7 @@ import {
   type ChatSessionListItem,
   type ChatSessionMessage,
   type CitationSource,
+  type DocumentRecord,
   type QueryCitation,
 } from "../lib/api";
 
@@ -31,6 +32,9 @@ type Message = {
 };
 
 const draftStorageKey = "enterprise-rag:chat-session-draft";
+const maxQueryDocuments = 10;
+const maxQueryPages = 100;
+type QueryMode = "selected" | "all_ready";
 
 function toTranscript(messages: Message[]): ChatSessionMessage[] {
   return messages.map((message) => ({
@@ -84,11 +88,13 @@ function normalizeCitations(citations: QueryCitation[]): CitationChip[] {
 }
 
 export default function ChatPage() {
-  const { activeDocument, documents, setActiveDocumentId, setUsageToday } = useAppShellContext();
+  const { activeDocument, documents, selectedDocumentIds, setSelectedDocumentIds, setActiveDocumentId, setUsageToday } =
+    useAppShellContext();
   const { accessToken } = useAuth();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
+  const [queryMode, setQueryMode] = useState<QueryMode>("selected");
   const [panelOpen, setPanelOpen] = useState(false);
   const [loadingSource, setLoadingSource] = useState(false);
   const [sourceError, setSourceError] = useState<string | null>(null);
@@ -108,6 +114,27 @@ export default function ChatPage() {
   const activeStreamIdRef = useRef<string | null>(null);
   const suppressDocumentResetRef = useRef(false);
   const persistBestEffortRef = useRef<() => void>(() => undefined);
+
+  const readyDocuments = useMemo(() => documents.filter((doc) => doc.status === "indexed" || doc.status === "ready"), [documents]);
+  const selectedDocuments = useMemo(
+    () =>
+      selectedDocumentIds
+        .map((documentId) => documents.find((doc) => doc.id === documentId))
+        .filter((doc): doc is DocumentRecord => Boolean(doc)),
+    [documents, selectedDocumentIds],
+  );
+  const queryDocuments = queryMode === "all_ready" ? readyDocuments : selectedDocuments;
+  const queryDocumentIds = useMemo(() => queryDocuments.map((doc) => doc.id), [queryDocuments]);
+  const queryPageCount = queryDocuments.reduce((total, doc) => total + Number(doc.page_count ?? 0), 0);
+  const queryCapError =
+    queryDocumentIds.length === 0
+      ? "Select at least one indexed document."
+      : queryDocumentIds.length > maxQueryDocuments
+        ? `Query supports up to ${maxQueryDocuments} documents.`
+        : queryPageCount > maxQueryPages
+          ? `Selected documents have ${queryPageCount} pages; query supports up to ${maxQueryPages} pages.`
+          : null;
+  const primaryDocument = queryDocuments[0] ?? activeDocument;
 
   const refreshSessions = useCallback(async () => {
     if (!accessToken) {
@@ -134,7 +161,7 @@ export default function ChatPage() {
   }, [accessToken, refreshSessions]);
 
   useEffect(() => {
-    if (!activeDocument) {
+    if (queryMode !== "selected" || selectedDocumentIds.length === 0) {
       return;
     }
 
@@ -165,30 +192,36 @@ export default function ChatPage() {
         sessionId: string | null;
         title: string;
         documentId: string | null;
+        documentIds?: string[];
+        queryMode?: QueryMode;
         messages: ChatSessionMessage[];
       };
-      if (parsed.documentId && parsed.documentId !== activeDocument.id) {
+      const restoredDocumentIds = parsed.documentIds?.length ? parsed.documentIds : parsed.documentId ? [parsed.documentId] : [];
+      if (restoredDocumentIds.length > 0 && restoredDocumentIds.some((documentId) => !selectedDocumentIds.includes(documentId))) {
         return;
       }
       if (Array.isArray(parsed.messages) && parsed.messages.length > 0) {
         setMessages(fromTranscript(parsed.messages));
         setCurrentSessionId(parsed.sessionId);
         setCurrentTitle(parsed.title || "Untitled chat");
+        setQueryMode(parsed.queryMode === "all_ready" ? "all_ready" : "selected");
       }
     } catch {
       localStorage.removeItem(draftStorageKey);
     }
-  }, [activeDocument?.id]);
+  }, [queryMode, selectedDocumentIds]);
 
   useEffect(() => {
     const payload = {
       sessionId: currentSessionId,
       title: currentTitle,
-      documentId: activeDocument?.id ?? null,
+      documentId: queryDocumentIds[0] ?? null,
+      documentIds: queryDocumentIds,
+      queryMode,
       messages: toTranscript(messages),
     };
     localStorage.setItem(draftStorageKey, JSON.stringify(payload));
-  }, [activeDocument?.id, currentSessionId, currentTitle, messages]);
+  }, [currentSessionId, currentTitle, messages, queryDocumentIds, queryMode]);
 
   const persistCurrentSession = useCallback(
     async (ended: boolean): Promise<string | null> => {
@@ -202,13 +235,16 @@ export default function ChatPage() {
 
       if (!currentSessionId) {
         const created = await apiCreateChatSession(accessToken, {
-          document_id: activeDocument?.id ?? null,
+          document_id: queryDocumentIds[0] ?? null,
+          document_ids: queryDocumentIds,
           title,
           messages: transcript,
         });
 
         if (ended) {
           await apiUpdateChatSession(accessToken, created.id, {
+            document_id: queryDocumentIds[0] ?? null,
+            document_ids: queryDocumentIds,
             title,
             messages: transcript,
             ended: true,
@@ -220,13 +256,15 @@ export default function ChatPage() {
       }
 
       await apiUpdateChatSession(accessToken, currentSessionId, {
+        document_id: queryDocumentIds[0] ?? null,
+        document_ids: queryDocumentIds,
         title,
         messages: transcript,
         ended,
       });
       return currentSessionId;
     },
-    [accessToken, activeDocument?.id, currentSessionId, messages],
+    [accessToken, currentSessionId, messages, queryDocumentIds],
   );
 
   useEffect(() => {
@@ -239,12 +277,15 @@ export default function ChatPage() {
       const method = currentSessionId ? "PATCH" : "POST";
       const body = currentSessionId
         ? {
+            document_id: queryDocumentIds[0] ?? null,
+            document_ids: queryDocumentIds,
             title: buildTitle(messages),
             messages: toTranscript(messages),
             ended: true,
           }
         : {
-            document_id: activeDocument?.id ?? null,
+            document_id: queryDocumentIds[0] ?? null,
+            document_ids: queryDocumentIds,
             title: buildTitle(messages),
             messages: toTranscript(messages),
           };
@@ -259,7 +300,7 @@ export default function ChatPage() {
         keepalive: true,
       });
     };
-  }, [accessToken, activeDocument?.id, currentSessionId, messages]);
+  }, [accessToken, currentSessionId, messages, queryDocumentIds]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
@@ -298,7 +339,11 @@ export default function ChatPage() {
 
   const sendMessage = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed || !accessToken || !activeDocument) {
+    if (!trimmed || !accessToken) {
+      return;
+    }
+    if (queryCapError) {
+      setToast({ id: Date.now(), message: queryCapError, type: "error" });
       return;
     }
 
@@ -329,7 +374,8 @@ export default function ChatPage() {
       await apiQueryStream(
         accessToken,
         {
-          document_id: activeDocument.id,
+          document_id: queryDocumentIds[0],
+          document_ids: queryDocumentIds,
           question: trimmed,
         },
         {
@@ -381,7 +427,7 @@ export default function ChatPage() {
         activeControllerRef.current = null;
       }
     }
-  }, [accessToken, activeDocument, input, setUsageToday]);
+  }, [accessToken, input, queryCapError, queryDocumentIds, setUsageToday]);
 
   const handleEndChat = useCallback(async () => {
     if (!accessToken) {
@@ -422,9 +468,12 @@ export default function ChatPage() {
         }
 
         const detail = await apiGetChatSession(accessToken, sessionId);
-        if (detail.document_id) {
+        const sessionDocumentIds = detail.document_ids?.length ? detail.document_ids : detail.document_id ? [detail.document_id] : [];
+        if (sessionDocumentIds.length > 0) {
           suppressDocumentResetRef.current = true;
-          setActiveDocumentId(detail.document_id);
+          setSelectedDocumentIds(sessionDocumentIds);
+          setActiveDocumentId(sessionDocumentIds[0]);
+          setQueryMode("selected");
         }
         setCurrentSessionId(detail.id);
         setCurrentTitle(detail.title || "Untitled chat");
@@ -436,7 +485,7 @@ export default function ChatPage() {
         setSavingSession(false);
       }
     },
-    [accessToken, messages.length, persistCurrentSession, setActiveDocumentId],
+    [accessToken, messages.length, persistCurrentSession, setActiveDocumentId, setSelectedDocumentIds],
   );
 
   useEffect(() => {
@@ -449,18 +498,18 @@ export default function ChatPage() {
 
   const sourceDocumentName = useMemo(() => {
     if (!source?.document_id) {
-      return activeDocument?.filename ?? null;
+      return primaryDocument?.filename ?? null;
     }
     const match = documents.find((doc) => doc.id === source.document_id);
-    return match?.filename ?? activeDocument?.filename ?? null;
-  }, [activeDocument?.filename, documents, source?.document_id]);
+    return match?.filename ?? primaryDocument?.filename ?? null;
+  }, [documents, primaryDocument?.filename, source?.document_id]);
 
-  if (!activeDocument) {
+  if (readyDocuments.length === 0) {
     return (
       <div className="p-4 md:p-6">
         <section className="flex h-full min-h-[70vh] items-center justify-center rounded-2xl border border-app-border bg-white p-6 text-center">
           <div>
-            <p className="text-lg font-semibold text-app-text">Select a document from the left to start chatting.</p>
+            <p className="text-lg font-semibold text-app-text">Upload and index a document to start chatting.</p>
             <p className="mt-2 text-sm text-app-muted">Only indexed documents can be queried.</p>
           </div>
         </section>
@@ -476,10 +525,36 @@ export default function ChatPage() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.08em] text-app-muted">Document Chat</p>
-                <h2 className="mt-1 text-lg font-semibold text-app-text">{activeDocument.filename}</h2>
+                <h2 className="mt-1 text-lg font-semibold text-app-text">
+                  {queryMode === "all_ready"
+                    ? `All ready documents (${readyDocuments.length})`
+                    : queryDocuments.length === 1
+                      ? queryDocuments[0].filename
+                      : `${queryDocuments.length} selected documents`}
+                </h2>
                 <p className="mt-1 text-sm text-app-muted">
                   {currentTitle} {currentSessionId ? `• session ${currentSessionId.slice(0, 8)}` : "• unsaved"}
                 </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className={queryMode === "selected" ? "btn-primary px-3 py-1.5 text-xs" : "btn-secondary px-3 py-1.5 text-xs"}
+                    onClick={() => setQueryMode("selected")}
+                  >
+                    Selected documents
+                  </button>
+                  <button
+                    type="button"
+                    className={queryMode === "all_ready" ? "btn-primary px-3 py-1.5 text-xs" : "btn-secondary px-3 py-1.5 text-xs"}
+                    onClick={() => setQueryMode("all_ready")}
+                  >
+                    All ready documents
+                  </button>
+                  <span className="text-xs text-app-muted">
+                    {queryDocumentIds.length}/{maxQueryDocuments} docs, {queryPageCount}/{maxQueryPages} pages
+                  </span>
+                </div>
+                {queryCapError ? <p className="mt-2 text-xs text-app-danger">{queryCapError}</p> : null}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -520,7 +595,7 @@ export default function ChatPage() {
 
           <div className="flex-1 space-y-3 overflow-y-auto bg-app-surface px-5 py-4">
             {messages.length === 0 ? (
-              <p className="text-sm text-app-muted">Ask a question about this document to start the conversation.</p>
+              <p className="text-sm text-app-muted">Ask a question about the selected document set to start the conversation.</p>
             ) : (
               messages.map((message) => (
                 <article
@@ -563,7 +638,7 @@ export default function ChatPage() {
                 rows={2}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
-                placeholder="Ask a question about this document"
+                placeholder="Ask a question about the selected documents"
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault();
@@ -572,7 +647,12 @@ export default function ChatPage() {
                 }}
               />
 
-              <button type="button" className="btn-primary h-[46px] w-[46px] flex-none p-0" onClick={() => void sendMessage()}>
+              <button
+                type="button"
+                className="btn-primary h-[46px] w-[46px] flex-none p-0"
+                onClick={() => void sendMessage()}
+                disabled={Boolean(queryCapError)}
+              >
                 <SendHorizontal size={16} />
               </button>
             </div>

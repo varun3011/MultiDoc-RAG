@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import math
 from typing import Any
 import uuid
 
@@ -52,30 +53,49 @@ def retrieve_top_k_chunks_for_documents(
     if not document_ids:
         return []
     vector_literal = _embedding_to_vector_literal(query_embedding)
-    sql = text(
-        """
+    per_document_k = (
+        top_k
+        if len(document_ids) == 1
+        else max(1, min(top_k, math.ceil(top_k / len(document_ids)) + 2))
+    )
+    sql = text("""
+        WITH ranked_chunks AS (
+            SELECT
+                c.id AS chunk_id,
+                c.document_id AS document_id,
+                c.page_start AS page_number,
+                c.content AS chunk_text,
+                COALESCE(dp.content, c.content) AS page_text,
+                c.token_count AS token_count,
+                (ce.embedding <=> CAST(:query_embedding AS vector)) AS score,
+                ROW_NUMBER() OVER (
+                    PARTITION BY c.document_id
+                    ORDER BY ce.embedding <=> CAST(:query_embedding AS vector)
+                ) AS document_rank
+            FROM chunk_embeddings ce
+            JOIN chunks c ON c.id = ce.chunk_id
+            LEFT JOIN document_pages dp
+                ON dp.workspace_id = :workspace_id
+               AND dp.document_id = c.document_id
+               AND dp.page_number = c.page_start
+            WHERE ce.workspace_id = :workspace_id
+              AND ce.document_id IN :document_ids
+              AND c.workspace_id = :workspace_id
+              AND c.document_id IN :document_ids
+        )
         SELECT
-            c.id AS chunk_id,
-            c.document_id AS document_id,
-            c.page_start AS page_number,
-            c.content AS chunk_text,
-            COALESCE(dp.content, c.content) AS page_text,
-            c.token_count AS token_count,
-            (ce.embedding <=> CAST(:query_embedding AS vector)) AS score
-        FROM chunk_embeddings ce
-        JOIN chunks c ON c.id = ce.chunk_id
-        LEFT JOIN document_pages dp
-            ON dp.workspace_id = :workspace_id
-           AND dp.document_id = c.document_id
-           AND dp.page_number = c.page_start
-        WHERE ce.workspace_id = :workspace_id
-          AND ce.document_id IN :document_ids
-          AND c.workspace_id = :workspace_id
-          AND c.document_id IN :document_ids
-        ORDER BY ce.embedding <=> CAST(:query_embedding AS vector)
+            chunk_id,
+            document_id,
+            page_number,
+            chunk_text,
+            page_text,
+            token_count,
+            score
+        FROM ranked_chunks
+        WHERE document_rank <= :per_document_k
+        ORDER BY score
         LIMIT :top_k
-        """
-    ).bindparams(bindparam("document_ids", expanding=True))
+        """).bindparams(bindparam("document_ids", expanding=True))
     rows: list[dict[str, Any]] = (
         db.execute(
             sql,
@@ -83,6 +103,7 @@ def retrieve_top_k_chunks_for_documents(
                 "workspace_id": workspace_id,
                 "document_ids": document_ids,
                 "query_embedding": vector_literal,
+                "per_document_k": per_document_k,
                 "top_k": top_k,
             },
         )

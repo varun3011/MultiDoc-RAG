@@ -38,9 +38,11 @@ export default function ChatSessionList({
       {!loading && items.length === 0 ? <p className="text-sm text-app-muted">No saved chats yet.</p> : null}
       <div className="space-y-2">
         {items.map((item) => {
-          const docName = item.document_id
-            ? documents.find((doc) => doc.id === item.document_id)?.filename ?? "Document"
+          const documentIds = item.document_ids?.length ? item.document_ids : item.document_id ? [item.document_id] : [];
+          const firstDocName = documentIds[0]
+            ? documents.find((doc) => doc.id === documentIds[0])?.filename ?? "Document"
             : "All documents";
+          const docName = documentIds.length > 1 ? `${firstDocName} + ${documentIds.length - 1} more` : firstDocName;
           return (
             <button
               key={item.id}

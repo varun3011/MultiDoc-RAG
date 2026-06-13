@@ -199,6 +199,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
     document_id UUID NULL REFERENCES documents(id) ON DELETE SET NULL,
+    document_ids UUID[] NOT NULL DEFAULT '{}',
     title TEXT NOT NULL DEFAULT '',
     messages JSONB NOT NULL DEFAULT '[]'::jsonb,
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -207,9 +208,19 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS document_ids UUID[] NOT NULL DEFAULT '{}';
+
+UPDATE chat_sessions
+SET document_ids = ARRAY[document_id]::UUID[]
+WHERE document_id IS NOT NULL
+  AND COALESCE(array_length(document_ids, 1), 0) = 0;
+
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_workspace_updated
     ON chat_sessions(workspace_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_workspace_document
     ON chat_sessions(workspace_id, document_id);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_document_ids
+    ON chat_sessions USING GIN (document_ids);
 
 COMMIT;

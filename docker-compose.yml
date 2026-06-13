@@ -22,8 +22,8 @@ services:
     container_name: rag-server
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - DB_POOL_SIZE=${DB_POOL_SIZE:-1}
-      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-0}
+      - DB_POOL_SIZE=${SERVER_DB_POOL_SIZE:-3}
+      - DB_MAX_OVERFLOW=${SERVER_DB_MAX_OVERFLOW:-2}
       - DB_POOL_TIMEOUT_SECONDS=${DB_POOL_TIMEOUT_SECONDS:-30}
       - REDIS_URL=redis://redis:6379/0
       - SUPABASE_URL=${SUPABASE_URL}
@@ -56,8 +56,8 @@ services:
       dockerfile: Dockerfile
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - DB_POOL_SIZE=${DB_POOL_SIZE:-1}
-      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-0}
+      - DB_POOL_SIZE=${WORKER_DB_POOL_SIZE:-1}
+      - DB_MAX_OVERFLOW=${WORKER_DB_MAX_OVERFLOW:-0}
       - DB_POOL_TIMEOUT_SECONDS=${DB_POOL_TIMEOUT_SECONDS:-30}
       - REDIS_URL=redis://redis:6379/0
       - SUPABASE_URL=${SUPABASE_URL}
@@ -86,8 +86,8 @@ services:
       dockerfile: Dockerfile
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - DB_POOL_SIZE=${DB_POOL_SIZE:-1}
-      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-0}
+      - DB_POOL_SIZE=${WORKER_DB_POOL_SIZE:-1}
+      - DB_MAX_OVERFLOW=${WORKER_DB_MAX_OVERFLOW:-0}
       - DB_POOL_TIMEOUT_SECONDS=${DB_POOL_TIMEOUT_SECONDS:-30}
       - REDIS_URL=redis://redis:6379/0
       - SUPABASE_URL=${SUPABASE_URL}

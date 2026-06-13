@@ -265,6 +265,7 @@ export type ChatSessionMetadata = {
   id: string;
   title: string;
   document_id: string | null;
+  document_ids: string[];
   created_at: string;
   updated_at: string;
   ended_at: string | null;
@@ -274,6 +275,7 @@ export type ChatSessionListItem = {
   id: string;
   title: string;
   document_id: string | null;
+  document_ids: string[];
   updated_at: string;
   ended_at: string | null;
 };
@@ -287,6 +289,7 @@ export type ChatSessionDetail = {
   id: string;
   title: string;
   document_id: string | null;
+  document_ids: string[];
   messages: ChatSessionMessage[];
   started_at: string;
   ended_at: string | null;
@@ -878,7 +881,7 @@ export function apiGetObservability(token: string): Promise<ObservabilityRespons
 
 export function apiCreateChatSession(
   token: string,
-  payload: { document_id?: string | null; title?: string; messages: ChatSessionMessage[] },
+  payload: { document_id?: string | null; document_ids?: string[]; title?: string; messages: ChatSessionMessage[] },
 ): Promise<ChatSessionMetadata> {
   return apiRequest<ChatSessionMetadata>("/chats/sessions", token, {
     method: "POST",
@@ -889,7 +892,7 @@ export function apiCreateChatSession(
 export function apiUpdateChatSession(
   token: string,
   sessionId: string,
-  payload: { title?: string; messages?: ChatSessionMessage[]; ended?: boolean },
+  payload: { document_id?: string | null; document_ids?: string[]; title?: string; messages?: ChatSessionMessage[]; ended?: boolean },
 ): Promise<ChatSessionMetadata> {
   return apiRequest<ChatSessionMetadata>(`/chats/sessions/${sessionId}`, token, {
     method: "PATCH",

@@ -38,24 +38,47 @@ def _normalize_title(title: str | None, messages: list[dict[str, object]]) -> st
     return "Untitled chat"
 
 
-def _ensure_document_in_workspace(db: Session, workspace_id: uuid.UUID, document_id: uuid.UUID | None) -> None:
-    if document_id is None:
+def _selected_document_ids(
+    document_id: uuid.UUID | None,
+    document_ids: list[uuid.UUID] | None,
+) -> list[uuid.UUID]:
+    selected: list[uuid.UUID] = []
+    if document_ids:
+        selected.extend(document_ids)
+    if document_id is not None and document_id not in selected:
+        selected.insert(0, document_id)
+    return selected
+
+
+def _ensure_documents_in_workspace(
+    db: Session, workspace_id: uuid.UUID, document_ids: list[uuid.UUID]
+) -> None:
+    if not document_ids:
         return
 
-    exists = db.execute(
-        text(
-            """
-            SELECT 1
+    rows = (
+        db.execute(
+            text("""
+            SELECT id
             FROM documents
-            WHERE id = :document_id
+            WHERE id IN :document_ids
               AND workspace_id = :workspace_id
-            LIMIT 1
-            """
-        ),
-        {"document_id": document_id, "workspace_id": workspace_id},
-    ).scalar_one_or_none()
-    if exists is None:
+            """).bindparams(bindparam("document_ids", expanding=True)),
+            {"document_ids": document_ids, "workspace_id": workspace_id},
+        )
+        .scalars()
+        .all()
+    )
+    found = set(rows)
+    missing = [document_id for document_id in document_ids if document_id not in found]
+    if missing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+
+def _ensure_document_in_workspace(
+    db: Session, workspace_id: uuid.UUID, document_id: uuid.UUID | None
+) -> None:
+    _ensure_documents_in_workspace(db, workspace_id, [document_id] if document_id else [])
 
 
 def _chat_sessions_table_exists(db: Session) -> bool:
@@ -78,7 +101,9 @@ def _build_payload(
     )
 
 
-def _parse_payload(raw: str | None, fallback_started_at: datetime) -> tuple[list[dict[str, object]], datetime, datetime | None]:
+def _parse_payload(
+    raw: str | None, fallback_started_at: datetime
+) -> tuple[list[dict[str, object]], datetime, datetime | None]:
     if not raw:
         return [], fallback_started_at, None
 
@@ -122,15 +147,17 @@ def create_chat_session(
     user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChatSessionMetadata:
-    _ensure_document_in_workspace(db, workspace_id, payload.document_id)
+    document_ids = _selected_document_ids(payload.document_id, payload.document_ids)
+    primary_document_id = document_ids[0] if document_ids else None
+    _ensure_documents_in_workspace(db, workspace_id, document_ids)
     messages = [message.model_dump(mode="json") for message in payload.messages]
     title = _normalize_title(payload.title, messages)
     now_utc = datetime.now(UTC)
 
     if not _chat_sessions_table_exists(db):
-        row = db.execute(
-            text(
-                """
+        row = (
+            db.execute(
+                text("""
                 INSERT INTO query_logs (
                     workspace_id,
                     user_id,
@@ -167,58 +194,68 @@ def create_chat_session(
                     NOW()
                 )
                 RETURNING id, query_text AS title, created_at
-                """
-            ),
-            {
-                "workspace_id": workspace_id,
-                "user_id": user.user_id,
-                "query_text": title,
-                "documents_searched": [payload.document_id] if payload.document_id else [],
-                "retrieved_chunk_ids": [],
-                "chunk_scores": [],
-                "answer_text": _build_payload(messages=messages, started_at=now_utc, ended_at=None),
-                "error_message": QUERY_LOG_CHAT_MARKER,
-            },
-        ).mappings().one()
+                """),
+                {
+                    "workspace_id": workspace_id,
+                    "user_id": user.user_id,
+                    "query_text": title,
+                    "documents_searched": document_ids,
+                    "retrieved_chunk_ids": [],
+                    "chunk_scores": [],
+                    "answer_text": _build_payload(
+                        messages=messages, started_at=now_utc, ended_at=None
+                    ),
+                    "error_message": QUERY_LOG_CHAT_MARKER,
+                },
+            )
+            .mappings()
+            .one()
+        )
         db.commit()
         return ChatSessionMetadata(
             id=row["id"],
             title=row["title"],
-            document_id=payload.document_id,
+            document_id=primary_document_id,
+            document_ids=document_ids,
             created_at=row["created_at"],
             updated_at=row["created_at"],
             ended_at=None,
         )
 
-    row = db.execute(
-        text(
-            """
+    row = (
+        db.execute(
+            text("""
             INSERT INTO chat_sessions (
                 workspace_id,
                 document_id,
+                document_ids,
                 title,
                 messages,
                 started_at,
                 created_at,
                 updated_at
             )
-            VALUES (:workspace_id, :document_id, :title, :messages, NOW(), NOW(), NOW())
-            RETURNING id, title, document_id, created_at, updated_at, ended_at
-            """
-        ).bindparams(bindparam("messages", type_=JSONB)),
-        {
-            "workspace_id": workspace_id,
-            "document_id": payload.document_id,
-            "title": title,
-            "messages": messages,
-        },
-    ).mappings().one()
+            VALUES (:workspace_id, :document_id, :document_ids, :title, :messages, NOW(), NOW(), NOW())
+            RETURNING id, title, document_id, document_ids, created_at, updated_at, ended_at
+            """).bindparams(bindparam("messages", type_=JSONB)),
+            {
+                "workspace_id": workspace_id,
+                "document_id": primary_document_id,
+                "document_ids": document_ids,
+                "title": title,
+                "messages": messages,
+            },
+        )
+        .mappings()
+        .one()
+    )
     db.commit()
 
     return ChatSessionMetadata(
         id=row["id"],
         title=row["title"],
         document_id=row["document_id"],
+        document_ids=list(row["document_ids"] or []),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         ended_at=row["ended_at"],
@@ -233,51 +270,72 @@ def update_chat_session(
     db: Session = Depends(get_db),
 ) -> ChatSessionMetadata:
     if not _chat_sessions_table_exists(db):
-        existing = db.execute(
-            text(
-                """
+        existing = (
+            db.execute(
+                text("""
                 SELECT id, query_text, documents_searched, answer_text, created_at
                 FROM query_logs
                 WHERE id = :session_id
                   AND workspace_id = :workspace_id
                   AND error_message = :marker
                 LIMIT 1
-                """
-            ),
-            {
-                "session_id": session_id,
-                "workspace_id": workspace_id,
-                "marker": QUERY_LOG_CHAT_MARKER,
-            },
-        ).mappings().first()
+                """),
+                {
+                    "session_id": session_id,
+                    "workspace_id": workspace_id,
+                    "marker": QUERY_LOG_CHAT_MARKER,
+                },
+            )
+            .mappings()
+            .first()
+        )
         if existing is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found"
+            )
 
-        old_messages, started_at, old_ended_at = _parse_payload(existing["answer_text"], existing["created_at"])
-        messages = [message.model_dump(mode="json") for message in payload.messages] if payload.messages is not None else old_messages
+        old_messages, started_at, old_ended_at = _parse_payload(
+            existing["answer_text"], existing["created_at"]
+        )
+        messages = (
+            [message.model_dump(mode="json") for message in payload.messages]
+            if payload.messages is not None
+            else old_messages
+        )
         title = _normalize_title(payload.title, messages)
         ended_at = datetime.now(UTC) if payload.ended else old_ended_at
+        old_document_ids = list(existing["documents_searched"] or [])
+        document_ids = (
+            _selected_document_ids(payload.document_id, payload.document_ids) or old_document_ids
+        )
+        _ensure_documents_in_workspace(db, workspace_id, document_ids)
 
-        row = db.execute(
-            text(
-                """
+        row = (
+            db.execute(
+                text("""
                 UPDATE query_logs
                 SET query_text = :query_text,
+                    documents_searched = :documents_searched,
                     answer_text = :answer_text
                 WHERE id = :session_id
                   AND workspace_id = :workspace_id
                   AND error_message = :marker
                 RETURNING id, query_text AS title, documents_searched, created_at
-                """
-            ),
-            {
-                "session_id": session_id,
-                "workspace_id": workspace_id,
-                "marker": QUERY_LOG_CHAT_MARKER,
-                "query_text": title,
-                "answer_text": _build_payload(messages=messages, started_at=started_at, ended_at=ended_at),
-            },
-        ).mappings().one()
+                """),
+                {
+                    "session_id": session_id,
+                    "workspace_id": workspace_id,
+                    "marker": QUERY_LOG_CHAT_MARKER,
+                    "query_text": title,
+                    "documents_searched": document_ids,
+                    "answer_text": _build_payload(
+                        messages=messages, started_at=started_at, ended_at=ended_at
+                    ),
+                },
+            )
+            .mappings()
+            .one()
+        )
         db.commit()
 
         docs = list(row["documents_searched"] or [])
@@ -285,23 +343,26 @@ def update_chat_session(
             id=row["id"],
             title=row["title"],
             document_id=docs[0] if docs else None,
+            document_ids=docs,
             created_at=row["created_at"],
             updated_at=datetime.now(UTC),
             ended_at=ended_at,
         )
 
-    existing = db.execute(
-        text(
-            """
-            SELECT id, document_id, messages
+    existing = (
+        db.execute(
+            text("""
+            SELECT id, document_id, document_ids, messages
             FROM chat_sessions
             WHERE id = :session_id
               AND workspace_id = :workspace_id
             LIMIT 1
-            """
-        ),
-        {"session_id": session_id, "workspace_id": workspace_id},
-    ).mappings().first()
+            """),
+            {"session_id": session_id, "workspace_id": workspace_id},
+        )
+        .mappings()
+        .first()
+    )
     if existing is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
 
@@ -311,34 +372,48 @@ def update_chat_session(
         else existing["messages"]
     )
     title = _normalize_title(payload.title, messages)
+    document_ids = _selected_document_ids(payload.document_id, payload.document_ids) or list(
+        existing["document_ids"] or []
+    )
+    if not document_ids and existing["document_id"]:
+        document_ids = [existing["document_id"]]
+    primary_document_id = document_ids[0] if document_ids else None
+    _ensure_documents_in_workspace(db, workspace_id, document_ids)
 
-    row = db.execute(
-        text(
-            """
+    row = (
+        db.execute(
+            text("""
             UPDATE chat_sessions
             SET title = :title,
+                document_id = :document_id,
+                document_ids = :document_ids,
                 messages = :messages,
                 ended_at = CASE WHEN :ended THEN NOW() ELSE ended_at END,
                 updated_at = NOW()
             WHERE id = :session_id
               AND workspace_id = :workspace_id
-            RETURNING id, title, document_id, created_at, updated_at, ended_at
-            """
-        ).bindparams(bindparam("messages", type_=JSONB)),
-        {
-            "session_id": session_id,
-            "workspace_id": workspace_id,
-            "title": title,
-            "messages": messages,
-            "ended": payload.ended,
-        },
-    ).mappings().one()
+            RETURNING id, title, document_id, document_ids, created_at, updated_at, ended_at
+            """).bindparams(bindparam("messages", type_=JSONB)),
+            {
+                "session_id": session_id,
+                "workspace_id": workspace_id,
+                "title": title,
+                "document_id": primary_document_id,
+                "document_ids": document_ids,
+                "messages": messages,
+                "ended": payload.ended,
+            },
+        )
+        .mappings()
+        .one()
+    )
     db.commit()
 
     return ChatSessionMetadata(
         id=row["id"],
         title=row["title"],
         document_id=row["document_id"],
+        document_ids=list(row["document_ids"] or []),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         ended_at=row["ended_at"],
@@ -382,18 +457,20 @@ def list_chat_sessions(
             ).scalar_one()
             or 0
         )
-        rows = db.execute(
-            text(
-                f"""
+        rows = (
+            db.execute(
+                text(f"""
                 SELECT id, query_text AS title, documents_searched, answer_text, created_at
                 FROM query_logs
                 WHERE {where_sql}
                 ORDER BY created_at DESC
                 LIMIT :limit OFFSET :offset
-                """
-            ),
-            params,
-        ).mappings().all()
+                """),
+                params,
+            )
+            .mappings()
+            .all()
+        )
 
         items: list[ChatSessionListItem] = []
         for row in rows:
@@ -404,6 +481,7 @@ def list_chat_sessions(
                     id=row["id"],
                     title=row["title"],
                     document_id=docs[0] if docs else None,
+                    document_ids=docs,
                     updated_at=row["created_at"],
                     ended_at=ended_at,
                 )
@@ -419,7 +497,7 @@ def list_chat_sessions(
         "offset": offset,
     }
     if document_id is not None:
-        where_sql += " AND document_id = :document_id"
+        where_sql += " AND (:document_id = ANY(document_ids) OR document_id = :document_id)"
 
     total = int(
         db.execute(
@@ -428,18 +506,20 @@ def list_chat_sessions(
         ).scalar_one()
         or 0
     )
-    rows = db.execute(
-        text(
-            f"""
-            SELECT id, title, document_id, updated_at, ended_at
+    rows = (
+        db.execute(
+            text(f"""
+            SELECT id, title, document_id, document_ids, updated_at, ended_at
             FROM chat_sessions
             WHERE {where_sql}
             ORDER BY updated_at DESC
             LIMIT :limit OFFSET :offset
-            """
-        ),
-        params,
-    ).mappings().all()
+            """),
+            params,
+        )
+        .mappings()
+        .all()
+    )
 
     return ChatSessionListResponse(
         items=[
@@ -447,6 +527,9 @@ def list_chat_sessions(
                 id=row["id"],
                 title=row["title"],
                 document_id=row["document_id"],
+                document_ids=list(
+                    row["document_ids"] or ([row["document_id"]] if row["document_id"] else [])
+                ),
                 updated_at=row["updated_at"],
                 ended_at=row["ended_at"],
             )
@@ -463,25 +546,29 @@ def get_chat_session(
     db: Session = Depends(get_db),
 ) -> ChatSessionDetailResponse:
     if not _chat_sessions_table_exists(db):
-        row = db.execute(
-            text(
-                """
+        row = (
+            db.execute(
+                text("""
                 SELECT id, query_text AS title, documents_searched, answer_text, created_at
                 FROM query_logs
                 WHERE id = :session_id
                   AND workspace_id = :workspace_id
                   AND error_message = :marker
                 LIMIT 1
-                """
-            ),
-            {
-                "session_id": session_id,
-                "workspace_id": workspace_id,
-                "marker": QUERY_LOG_CHAT_MARKER,
-            },
-        ).mappings().first()
+                """),
+                {
+                    "session_id": session_id,
+                    "workspace_id": workspace_id,
+                    "marker": QUERY_LOG_CHAT_MARKER,
+                },
+            )
+            .mappings()
+            .first()
+        )
         if row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found"
+            )
 
         docs = list(row["documents_searched"] or [])
         messages, started_at, ended_at = _parse_payload(row["answer_text"], row["created_at"])
@@ -489,23 +576,26 @@ def get_chat_session(
             id=row["id"],
             title=row["title"],
             document_id=docs[0] if docs else None,
+            document_ids=docs,
             messages=messages,
             started_at=started_at,
             ended_at=ended_at,
         )
 
-    row = db.execute(
-        text(
-            """
-            SELECT id, title, document_id, messages, started_at, ended_at
+    row = (
+        db.execute(
+            text("""
+            SELECT id, title, document_id, document_ids, messages, started_at, ended_at
             FROM chat_sessions
             WHERE id = :session_id
               AND workspace_id = :workspace_id
             LIMIT 1
-            """
-        ),
-        {"session_id": session_id, "workspace_id": workspace_id},
-    ).mappings().first()
+            """),
+            {"session_id": session_id, "workspace_id": workspace_id},
+        )
+        .mappings()
+        .first()
+    )
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Chat session not found")
 
@@ -513,6 +603,9 @@ def get_chat_session(
         id=row["id"],
         title=row["title"],
         document_id=row["document_id"],
+        document_ids=list(
+            row["document_ids"] or ([row["document_id"]] if row["document_id"] else [])
+        ),
         messages=row["messages"] or [],
         started_at=row["started_at"],
         ended_at=row["ended_at"],

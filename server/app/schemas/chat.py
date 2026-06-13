@@ -16,11 +16,14 @@ class ChatMessage(BaseModel):
 
 class ChatSessionCreateRequest(BaseModel):
     document_id: uuid.UUID | None = None
+    document_ids: list[uuid.UUID] | None = None
     title: str | None = None
     messages: list[ChatMessage] = Field(default_factory=list)
 
 
 class ChatSessionUpdateRequest(BaseModel):
+    document_id: uuid.UUID | None = None
+    document_ids: list[uuid.UUID] | None = None
     title: str | None = None
     messages: list[ChatMessage] | None = None
     ended: bool = False
@@ -30,6 +33,7 @@ class ChatSessionMetadata(BaseModel):
     id: uuid.UUID
     title: str
     document_id: uuid.UUID | None = None
+    document_ids: list[uuid.UUID] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     ended_at: datetime | None = None
@@ -39,6 +43,7 @@ class ChatSessionListItem(BaseModel):
     id: uuid.UUID
     title: str
     document_id: uuid.UUID | None = None
+    document_ids: list[uuid.UUID] = Field(default_factory=list)
     updated_at: datetime
     ended_at: datetime | None = None
 
@@ -52,6 +57,7 @@ class ChatSessionDetailResponse(BaseModel):
     id: uuid.UUID
     title: str
     document_id: uuid.UUID | None = None
+    document_ids: list[uuid.UUID] = Field(default_factory=list)
     messages: list[ChatMessage]
     started_at: datetime
     ended_at: datetime | None = None

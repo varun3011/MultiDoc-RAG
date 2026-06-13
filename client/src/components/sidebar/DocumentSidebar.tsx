@@ -1,4 +1,4 @@
-import { FileText, Search, UploadCloud } from "lucide-react";
+import { Check, FileText, Search, UploadCloud } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { DocumentRecord, WorkspaceMe } from "../../lib/api";
@@ -8,9 +8,11 @@ type SidebarProps = {
   workspace: WorkspaceMe | null;
   documents: DocumentRecord[];
   activeDocumentId: string | null;
+  selectedDocumentIds: string[];
   query: string;
   onQueryChange: (value: string) => void;
   onSelectDocument: (documentId: string) => void;
+  onToggleDocument: (documentId: string) => void;
   onGoUpload: () => void;
   onRetryDocument: (documentId: string) => void;
   onReindexDocument: (documentId: string) => void;
@@ -62,9 +64,11 @@ export default function DocumentSidebar({
   workspace,
   documents,
   activeDocumentId,
+  selectedDocumentIds,
   query,
   onQueryChange,
   onSelectDocument,
+  onToggleDocument,
   onGoUpload,
   onRetryDocument,
   onReindexDocument,
@@ -106,7 +110,9 @@ export default function DocumentSidebar({
               key={doc.id}
               document={doc}
               active={activeDocumentId === doc.id}
+              selected={selectedDocumentIds.includes(doc.id)}
               onClick={() => onSelectDocument(doc.id)}
+              onToggle={() => onToggleDocument(doc.id)}
               onReindex={() => onReindexDocument(doc.id)}
             />
           ))}
@@ -145,14 +151,18 @@ function Section({ title, count, children }: { title: string; count: number; chi
 function DocRow({
   document,
   active,
+  selected,
   onClick,
+  onToggle,
   disabled,
   onRetry,
   onReindex,
 }: {
   document: DocumentRecord;
   active: boolean;
+  selected?: boolean;
   onClick?: () => void;
+  onToggle?: () => void;
   disabled?: boolean;
   onRetry?: () => void;
   onReindex?: () => void;
@@ -171,7 +181,32 @@ function DocRow({
       )}
     >
       <div className="flex items-start gap-2">
-        <FileText size={16} className="mt-0.5 flex-none text-app-muted" />
+        {onToggle ? (
+          <span
+            role="checkbox"
+            aria-checked={selected}
+            tabIndex={0}
+            className={cn(
+              "mt-0.5 flex h-4 w-4 flex-none items-center justify-center rounded border text-[10px] font-semibold",
+              selected ? "border-app-accent bg-app-accent text-white" : "border-app-border bg-white text-transparent",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggle();
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggle();
+              }
+            }}
+          >
+            <Check size={11} />
+          </span>
+        ) : (
+          <FileText size={16} className="mt-0.5 flex-none text-app-muted" />
+        )}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-app-text">{document.filename}</p>
           <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-app-muted">

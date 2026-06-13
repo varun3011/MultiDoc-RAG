@@ -22,6 +22,8 @@ export type AppShellContextValue = {
   documents: DocumentRecord[];
   loading: boolean;
   activeDocument: DocumentRecord | null;
+  selectedDocumentIds: string[];
+  setSelectedDocumentIds: (documentIds: string[]) => void;
   setActiveDocumentId: (documentId: string | null) => void;
   setUsageToday: (usage: UsageToday) => void;
   refreshWorkspace: () => Promise<void>;
@@ -29,6 +31,18 @@ export type AppShellContextValue = {
 };
 
 const activeDocumentStorageKey = "enterprise-rag:active-document";
+const selectedDocumentsStorageKey = "enterprise-rag:selected-documents";
+
+function restoreSelectedDocumentIds(): string[] {
+  try {
+    const raw = localStorage.getItem(selectedDocumentsStorageKey);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(parsed) ? parsed.map((item) => String(item)).filter(Boolean) : [];
+  } catch {
+    localStorage.removeItem(selectedDocumentsStorageKey);
+    return [];
+  }
+}
 
 export default function AppShell() {
   const { accessToken, user, signOut } = useAuth();
@@ -39,8 +53,20 @@ export default function AppShell() {
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [sidebarQuery, setSidebarQuery] = useState("");
   const [activeDocumentId, setActiveDocumentId] = useState<string | null>(() => localStorage.getItem(activeDocumentStorageKey));
+  const [selectedDocumentIds, setSelectedDocumentIdsState] = useState<string[]>(restoreSelectedDocumentIds);
   const [loading, setLoading] = useState(true);
   const [refreshingUsage, setRefreshingUsage] = useState(false);
+
+  const setSelectedDocumentIds = useCallback((documentIds: string[]) => {
+    const unique = Array.from(new Set(documentIds.filter(Boolean)));
+    setSelectedDocumentIdsState(unique);
+    setActiveDocumentId(unique[0] ?? null);
+  }, []);
+
+  const setActiveDocumentSelection = useCallback((documentId: string | null) => {
+    setActiveDocumentId(documentId);
+    setSelectedDocumentIdsState(documentId ? [documentId] : []);
+  }, []);
 
   const refreshWorkspace = useCallback(async () => {
     if (!accessToken) {
@@ -111,13 +137,21 @@ export default function AppShell() {
       return;
     }
 
-    const stillExists = documents.some((doc) => doc.id === activeDocumentId && (doc.status === "indexed" || doc.status === "ready"));
+    const readyDocumentIds = new Set(
+      documents.filter((doc) => doc.status === "indexed" || doc.status === "ready").map((doc) => doc.id),
+    );
+    const stillExists = readyDocumentIds.has(activeDocumentId);
 
     if (!stillExists) {
       setActiveDocumentId(null);
       localStorage.removeItem(activeDocumentStorageKey);
     }
+    setSelectedDocumentIdsState((current) => current.filter((documentId) => readyDocumentIds.has(documentId)));
   }, [activeDocumentId, documents]);
+
+  useEffect(() => {
+    localStorage.setItem(selectedDocumentsStorageKey, JSON.stringify(selectedDocumentIds));
+  }, [selectedDocumentIds]);
 
   const activeDocument = useMemo(
     () => documents.find((doc) => doc.id === activeDocumentId) ?? null,
@@ -136,7 +170,16 @@ export default function AppShell() {
   };
 
   const handleSelectDocument = (documentId: string) => {
-    setActiveDocumentId(documentId);
+    setSelectedDocumentIds([documentId]);
+    navigate("/app/chat");
+  };
+
+  const handleToggleDocument = (documentId: string) => {
+    setSelectedDocumentIds(
+      selectedDocumentIds.includes(documentId)
+        ? selectedDocumentIds.filter((selectedId) => selectedId !== documentId)
+        : [...selectedDocumentIds, documentId],
+    );
     navigate("/app/chat");
   };
 
@@ -174,7 +217,9 @@ export default function AppShell() {
     documents,
     loading,
     activeDocument,
-    setActiveDocumentId,
+    selectedDocumentIds,
+    setSelectedDocumentIds,
+    setActiveDocumentId: setActiveDocumentSelection,
     setUsageToday,
     refreshWorkspace,
     refreshDocuments,
@@ -187,9 +232,11 @@ export default function AppShell() {
           workspace={workspace}
           documents={documents}
           activeDocumentId={activeDocumentId}
+          selectedDocumentIds={selectedDocumentIds}
           query={sidebarQuery}
           onQueryChange={setSidebarQuery}
           onSelectDocument={handleSelectDocument}
+          onToggleDocument={handleToggleDocument}
           onGoUpload={() => navigate("/app/upload")}
           onRetryDocument={(documentId) => {
             void handleRetryDocument(documentId);

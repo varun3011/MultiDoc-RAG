@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     api_port: int = 8000
 
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/enterprise_rag"
-    DB_POOL_SIZE: int = 1
-    DB_MAX_OVERFLOW: int = 0
+    DB_POOL_SIZE: int = 3
+    DB_MAX_OVERFLOW: int = 2
     DB_POOL_TIMEOUT_SECONDS: int = 30
     REDIS_URL: str = "redis://localhost:6379/0"
 
